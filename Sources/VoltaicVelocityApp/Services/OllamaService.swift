@@ -24,7 +24,9 @@ actor OllamaService {
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.timeoutInterval = 300 // Explicitly set timeout on the request object itself
-                    request.httpBody = try JSONEncoder().encode(requestData)
+                    var requestDict = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(requestData)) as? [String: Any] ?? [:]
+                    requestDict["stream"] = true
+                    request.httpBody = try JSONSerialization.data(withJSONObject: requestDict)
                     
                     let (result, response) = try await session.bytes(for: request)
                     guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
@@ -40,7 +42,7 @@ actor OllamaService {
                                 break
                             }
                         } catch {
-                            // Some lines might be empty or invalid JSON, ignore and continue
+                            print("Ollama API stream decode error: \(error.localizedDescription) for line: \(line)")
                             continue
                         }
                     }
