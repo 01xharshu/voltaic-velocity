@@ -225,8 +225,10 @@ final class AgentViewModel: ObservableObject {
         5. If asked to create a website or HTML, make it beautiful with modern CSS, animations, and responsive design.
 
         Available tools:
+        - read_file(file_path) — Read the contents of a file
         - create_file(path, content) — Create a new file
-        - edit_file(path, content) — Replace file contents
+        - edit_file(path, content) — Replace entire file contents
+        - replace_in_file(file_path, old_string, new_string) — Replace a specific string in a file
         - delete_file(path) — Delete a file
         - run_terminal(command) — Run a shell command
         - list_files(path) — List directory contents
@@ -280,6 +282,48 @@ final class AgentViewModel: ObservableObject {
                             ]),
                         ]),
                         "required": .array([.string("path"), .string("content")])
+                    ])
+                ])
+            ],
+            [
+                "type": .string("function"),
+                "function": .object([
+                    "name": .string("read_file"),
+                    "description": .string("Read the contents of a file."),
+                    "parameters": .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "file_path": .object([
+                                "type": .string("string"),
+                                "description": .string("Relative path to the file inside the project folder."),
+                            ]),
+                        ]),
+                        "required": .array([.string("file_path")])
+                    ])
+                ])
+            ],
+            [
+                "type": .string("function"),
+                "function": .object([
+                    "name": .string("replace_in_file"),
+                    "description": .string("Replace a specific string in a file with a new string. Use this for partial file edits."),
+                    "parameters": .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "file_path": .object([
+                                "type": .string("string"),
+                                "description": .string("Relative path inside the project folder."),
+                            ]),
+                            "old_string": .object([
+                                "type": .string("string"),
+                                "description": .string("The exact existing string to replace."),
+                            ]),
+                            "new_string": .object([
+                                "type": .string("string"),
+                                "description": .string("The new string to replace it with."),
+                            ]),
+                        ]),
+                        "required": .array([.string("file_path"), .string("old_string"), .string("new_string")])
                     ])
                 ])
             ],
