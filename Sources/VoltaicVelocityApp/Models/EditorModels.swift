@@ -31,6 +31,35 @@ struct ChatMessage: Identifiable {
     let role: Role
     var text: String
     let date = Date()
+    var activities: [AgentActivity] = []
+    var totalWorkTime: TimeInterval = 0
+    var filesChanged: [FileChange] = []
+}
+
+struct FileChange: Identifiable {
+    let id = UUID()
+    let name: String
+    var added: Int
+    var removed: Int
+}
+
+struct AgentActivity: Identifiable {
+    enum Kind {
+        case thinking(duration: TimeInterval)
+        case searching(query: String, results: Int)
+        case analyzing(file: String, lines: String)
+        case editing(file: String, added: Int, removed: Int)
+        case created(file: String)
+        case deleted(file: String)
+        case ranCommand(command: String)
+        case completed
+        case error(message: String)
+        case info(message: String)
+    }
+    let id = UUID()
+    let kind: Kind
+    var details: String
+    var timestamp: Date = Date()
 }
 
 struct AgentStep: Identifiable {

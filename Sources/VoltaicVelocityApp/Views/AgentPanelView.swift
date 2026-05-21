@@ -48,7 +48,7 @@ struct AgentPanelView: View {
 
             Divider().opacity(0.5)
 
-            // Chat + Timeline Area
+            // Chat Area
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     LazyVStack(spacing: 8) {
@@ -61,11 +61,6 @@ struct AgentPanelView: View {
                                     agentViewModel.editPrompt(messageId: message.id)
                                 }
                             }
-                        }
-
-                        // Inline timeline steps
-                        if !agentViewModel.agentSteps.isEmpty {
-                            TimelineView(steps: agentViewModel.agentSteps, editorViewModel: editorViewModel)
                         }
 
                         // Typing indicator
@@ -85,7 +80,12 @@ struct AgentPanelView: View {
                         proxy.scrollTo("chat-bottom", anchor: .bottom)
                     }
                 }
-                .onChange(of: agentViewModel.agentSteps.count) { _, _ in
+                .onChange(of: agentViewModel.chatMessages.last?.text) { _, _ in
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo("chat-bottom", anchor: .bottom)
+                    }
+                }
+                .onChange(of: agentViewModel.chatMessages.last?.activities.count) { _, _ in
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo("chat-bottom", anchor: .bottom)
                     }

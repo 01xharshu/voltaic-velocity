@@ -4,7 +4,6 @@ import OllamaKit
 @MainActor
 final class AgentViewModel: ObservableObject {
     @Published var chatMessages: [ChatMessage] = [ChatMessage(role: .system, text: "Voltaic Velocity AI agent ready. Use natural language to modify the project, write code, or run terminal commands.")]
-    @Published var agentSteps: [AgentStep] = []
     @Published var promptText = ""
     @Published var selectedModel = "qwen2.5-coder:7b"
     @Published var isAgentModePlanning = true
@@ -29,7 +28,6 @@ final class AgentViewModel: ObservableObject {
 
     func startNewChat() {
         chatMessages = [ChatMessage(role: .system, text: "You are the Voltaic Velocity project agent. Use tool calls to modify files, run terminal commands, and analyze the workspace.")]
-        agentSteps = []
         promptText = ""
     }
 
@@ -39,7 +37,6 @@ final class AgentViewModel: ObservableObject {
         chatMessages.append(ChatMessage(role: .user, text: userText))
         promptText = ""
         isProcessing = true
-        agentSteps.append(AgentStep(title: "Planning", details: "Preparing context for \(selectedModel) and analyzing files...", status: .running))
 
         Task {
             await streamResponse(for: userText)
@@ -57,12 +54,13 @@ final class AgentViewModel: ObservableObject {
 
     func stopProcessing() {
         isProcessing = false
-        appendSystemStep(title: "Stopped", details: "User interrupted the agent.", status: .warning)
+        appendActivity(.error(message: "User interrupted the agent."), details: "")
     }
 
     private func streamResponse(for userText: String) async {
-        guard let projectViewModel, let editorViewModel, let terminalViewModel else {
-            appendSystemStep(title: "Missing context", details: "Project and editor context must be linked before sending prompts.", status: .failure)
+        let startTime = Date()
+        guard let _ = projectViewModel, let _ = editorViewModel, let _ = terminalViewModel else {
+            appendActivity(.error(message: "Missing context"), details: "Project and editor context must be linked before sending prompts.")
             isProcessing = false
             return
         }
@@ -115,16 +113,9 @@ final class AgentViewModel: ObservableObject {
                     var resultsText = ""
                     for toolCall in toolCallsMade {
                         if let function = toolCall.function, let name = function.name {
-                            appendSystemStep(title: "Running: \(name)", details: "Executing tool...", status: .running)
+                            appendActivity(.ranCommand(command: "Using tool: \(name)"), details: "Executing...")
                             let resultStr = await handleToolCall(name: name, arguments: function.arguments)
                             resultsText += "Tool '\(name)' result:\n\(resultStr)\n\n"
-                            // Update the step to success
-                            if let lastStep = agentSteps.last {
-                                if let idx = agentSteps.firstIndex(where: { $0.id == lastStep.id }) {
-                                    agentSteps[idx].status = .success
-                                    agentSteps[idx].details = "Done."
-                                }
-                            }
                         }
                     }
                     messages.append(OKChatRequestData.Message(role: .user, content: resultsText))
@@ -147,12 +138,8 @@ final class AgentViewModel: ObservableObject {
                                 if let str = v as? String { argMap[k] = .string(str) }
                             }
                         }
-                        appendSystemStep(title: "Running: \(name)", details: "Executing tool...", status: .running)
+                        appendActivity(.ranCommand(command: "Using tool: \(name)"), details: "Executing...")
                         let resultStr = await handleToolCall(name: name, arguments: .object(argMap))
-                        if let lastStep = agentSteps.last, let idx = agentSteps.firstIndex(where: { $0.id == lastStep.id }) {
-                            agentSteps[idx].status = .success
-                            agentSteps[idx].details = "Done."
-                        }
                         messages.append(OKChatRequestData.Message(role: .user, content: "Tool '\(name)' result:\n\(resultStr)"))
                     } else {
                         taskCompleted = true
@@ -175,25 +162,20 @@ final class AgentViewModel: ObservableObject {
                             if let str = v as? String { argMap[k] = .string(str) }
                         }
                     }
-                    appendSystemStep(title: "Running: \(name)", details: "Executing tool...", status: .running)
+                    appendActivity(.ranCommand(command: "Using tool: \(name)"), details: "Executing...")
                     let resultStr = await handleToolCall(name: name, arguments: .object(argMap))
-                    if let lastStep = agentSteps.last, let idx = agentSteps.firstIndex(where: { $0.id == lastStep.id }) {
-                        agentSteps[idx].status = .success
-                        agentSteps[idx].details = "Done."
-                    }
                     messages.append(OKChatRequestData.Message(role: .user, content: "Tool '\(name)' result:\n\(resultStr)"))
 
                 } else {
-                    // Case 4: Plain text response (conversation)
                     if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
                         chatMessages[lastIndex].text = trimmed
                     }
                     taskCompleted = true
-                    appendSystemStep(title: "Completed", details: "Agent completed the request.", status: .success)
+                    appendActivity(.info(message: "Completed"), details: "Agent completed the request.")
                 }
                 
             } catch {
-                appendSystemStep(title: "Agent failed", details: error.localizedDescription, status: .failure)
+                appendActivity(.error(message: "Agent failed"), details: error.localizedDescription)
                 if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
                     chatMessages[lastIndex].text += "\n⚠️ Error: \(error.localizedDescription)"
                 }
@@ -202,10 +184,14 @@ final class AgentViewModel: ObservableObject {
         }
 
         if currentIteration >= maxIterations && !taskCompleted {
-            appendSystemStep(title: "Max iterations reached", details: "The agent stopped after 5 tool loops.", status: .warning)
+            appendActivity(.error(message: "Max iterations reached"), details: "The agent stopped after 5 tool loops.")
             if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
                 chatMessages[lastIndex].text += "\n[Stopped after maximum iterations]"
             }
+        }
+
+        if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
+            chatMessages[lastIndex].totalWorkTime = Date().timeIntervalSince(startTime)
         }
 
         isProcessing = false
@@ -259,8 +245,19 @@ final class AgentViewModel: ObservableObject {
         chatMessages[lastIndex].text += text
     }
 
-    private func appendSystemStep(title: String, details: String, status: AgentStep.Status) {
-        agentSteps.append(AgentStep(title: title, details: details, status: status))
+    private func appendActivity(_ kind: AgentActivity.Kind, details: String = "") {
+        guard let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) else { return }
+        chatMessages[lastIndex].activities.append(AgentActivity(kind: kind, details: details))
+    }
+    
+    private func recordFileChange(name: String, added: Int, removed: Int) {
+        guard let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) else { return }
+        if let existingIndex = chatMessages[lastIndex].filesChanged.firstIndex(where: { $0.name == name }) {
+            chatMessages[lastIndex].filesChanged[existingIndex].added += added
+            chatMessages[lastIndex].filesChanged[existingIndex].removed += removed
+        } else {
+            chatMessages[lastIndex].filesChanged.append(FileChange(name: name, added: added, removed: removed))
+        }
     }
 
     private func makeToolDefinitions() -> [OKJSONValue] {
@@ -393,7 +390,7 @@ final class AgentViewModel: ObservableObject {
 
     private func handleToolCall(name: String, arguments: OKJSONValue?) async -> String {
         guard let projectURL = projectViewModel?.projectURL else {
-            appendSystemStep(title: "No project opened", details: "The agent attempted a tool call before a project folder was opened.", status: .failure)
+            appendActivity(.error(message: "No project opened"), details: "The agent attempted a tool call before a project folder was opened.")
             return "Error: No project opened."
         }
 
@@ -401,17 +398,19 @@ final class AgentViewModel: ObservableObject {
         switch name {
         case "create_file":
             guard let path = args["path"]?.stringValue(), let content = args["content"]?.stringValue() else {
-                appendSystemStep(title: "Invalid tool call", details: "create_file missing required arguments.", status: .warning)
+                appendActivity(.error(message: "create_file missing arguments"), details: "Missing path or content.")
                 return "Error: Missing path or content."
             }
-            // Create immediately
             let targetURL = projectURL.appendingPathComponent(path)
             let directory = targetURL.deletingLastPathComponent()
             do {
                 try FileSystemService.shared.createFolderIfNeeded(at: directory)
                 try FileSystemService.shared.writeText(content, to: targetURL)
                 projectViewModel?.refreshWorkspace()
-                appendSystemStep(title: "Created \(targetURL.lastPathComponent)", details: "Created file.", status: .success)
+                let fileName = targetURL.lastPathComponent
+                appendActivity(.created(file: fileName), details: "Created file at \(path).")
+                let lineCount = content.components(separatedBy: .newlines).count
+                recordFileChange(name: fileName, added: lineCount, removed: 0)
                 return "File successfully created at \(path)."
             } catch {
                 return "Error creating file: \(error.localizedDescription)"
@@ -424,7 +423,7 @@ final class AgentViewModel: ObservableObject {
             let targetURL = projectURL.appendingPathComponent(path)
             do {
                 let content = try FileSystemService.shared.readText(from: targetURL)
-                appendSystemStep(title: "Read \(path)", details: "Read \(content.count) characters.", status: .success)
+                appendActivity(.analyzing(file: targetURL.lastPathComponent, lines: "\(content.count) chars"), details: "Read \(path)")
                 return content
             } catch {
                 return "Error reading file: \(error.localizedDescription)"
@@ -450,9 +449,8 @@ final class AgentViewModel: ObservableObject {
             }
             
         case "edit_file":
-            // Fallback for edit_file if model still uses it
             guard let path = args["path"]?.stringValue(), let content = args["content"]?.stringValue() else {
-                appendSystemStep(title: "Invalid tool call", details: "edit_file missing required arguments.", status: .warning)
+                appendActivity(.error(message: "edit_file missing arguments"), details: "Missing path or content.")
                 return "Error: Missing path or content."
             }
             await processFileAction(type: .edit, relativePath: path, content: content, baseURL: projectURL)
@@ -460,7 +458,7 @@ final class AgentViewModel: ObservableObject {
 
         case "delete_file":
             guard let path = args["path"]?.stringValue() else {
-                appendSystemStep(title: "Invalid tool call", details: "delete_file missing required arguments.", status: .warning)
+                appendActivity(.error(message: "delete_file missing arguments"), details: "Missing path.")
                 return "Error: Missing path."
             }
             await deleteFile(relativePath: path, baseURL: projectURL)
@@ -468,13 +466,12 @@ final class AgentViewModel: ObservableObject {
 
         case "run_terminal":
             guard let command = args["command"]?.stringValue() else {
-                appendSystemStep(title: "Invalid tool call", details: "run_terminal missing required arguments.", status: .warning)
+                appendActivity(.error(message: "run_terminal missing arguments"), details: "Missing command.")
                 return "Error: Missing command."
             }
-            appendSystemStep(title: "Running command", details: command, status: .running)
+            appendActivity(.ranCommand(command: command), details: "Executing...")
             await terminalViewModel?.appendOutput("$ \(command)\n")
             if let output = await terminalViewModel?.execute(command: command) {
-                appendSystemStep(title: "Command finished", details: "Executed \(command)", status: .success)
                 return output
             }
             return "Command executed but no output returned."
@@ -494,7 +491,7 @@ final class AgentViewModel: ObservableObject {
             return "Git diff requested."
             
         default:
-            appendSystemStep(title: "Unknown tool call", details: "Tool '\(name)' is not supported.", status: .warning)
+            appendActivity(.error(message: "Unknown tool call"), details: "Tool '\(name)' is not supported.")
             return "Error: Tool '\(name)' is not supported."
         }
     }
@@ -516,7 +513,7 @@ final class AgentViewModel: ObservableObject {
             }
         )
 
-        appendSystemStep(title: summary, details: "Review or confirm the generated code before applying.", status: .pending)
+        appendActivity(.info(message: summary), details: "Review or confirm the generated code before applying.")
     }
 
     private func applyPendingAction() async {
@@ -529,15 +526,15 @@ final class AgentViewModel: ObservableObject {
                 try FileSystemService.shared.writeText(pending.newText, to: pending.fileURL)
                 projectViewModel?.refreshWorkspace()
                 editorViewModel?.openFile(at: pending.fileURL)
-                appendSystemStep(title: "File created", details: pending.fileURL.lastPathComponent, status: .success)
+                appendActivity(.created(file: pending.fileURL.lastPathComponent))
             case .edit:
                 try FileSystemService.shared.writeText(pending.newText, to: pending.fileURL)
                 projectViewModel?.refreshWorkspace()
                 editorViewModel?.openFile(at: pending.fileURL)
-                appendSystemStep(title: "File edited", details: pending.fileURL.lastPathComponent, status: .success)
+                appendActivity(.editing(file: pending.fileURL.lastPathComponent, added: 0, removed: 0))
             }
         } catch {
-            appendSystemStep(title: "File action failed", details: error.localizedDescription, status: .failure)
+            appendActivity(.error(message: "File action failed"), details: error.localizedDescription)
         }
         pendingFileAction = nil
     }
@@ -547,36 +544,36 @@ final class AgentViewModel: ObservableObject {
         do {
             try FileSystemService.shared.deleteItem(at: targetURL)
             projectViewModel?.refreshWorkspace()
-            appendSystemStep(title: "File deleted", details: relativePath, status: .success)
+            appendActivity(.deleted(file: relativePath))
         } catch {
-            appendSystemStep(title: "Delete failed", details: error.localizedDescription, status: .failure)
+            appendActivity(.error(message: "Delete failed"), details: error.localizedDescription)
         }
     }
 
     private func runTerminalCommand(_ command: String) async {
-        appendSystemStep(title: "Running command", details: command, status: .running)
+        appendActivity(.ranCommand(command: command), details: "Executing...")
         await terminalViewModel?.appendOutput("$ \(command)\n")
-        await terminalViewModel?.execute(command: command)
+        _ = await terminalViewModel?.execute(command: command)
     }
 
     private func performGitStatus(baseURL: URL) async {
-        appendSystemStep(title: "Git status", details: "Fetching repository status.", status: .running)
+        appendActivity(.ranCommand(command: "git status"), details: "Fetching repository status.")
         do {
             let result = try await gitService.status(at: baseURL)
-            appendSystemStep(title: "Git status", details: result.isEmpty ? "Clean working tree." : result, status: .success)
+            appendActivity(.info(message: "Git status"), details: result.isEmpty ? "Clean working tree." : result)
         } catch {
-            appendSystemStep(title: "Git status failed", details: error.localizedDescription, status: .failure)
+            appendActivity(.error(message: "Git status failed"), details: error.localizedDescription)
         }
     }
 
     private func performGitDiff(relativePath: String?, baseURL: URL) async {
-        appendSystemStep(title: "Git diff", details: "Computing git diff.", status: .running)
+        appendActivity(.ranCommand(command: "git diff \(relativePath ?? "")"), details: "Computing git diff.")
         do {
             let fileURL = relativePath.flatMap { baseURL.appendingPathComponent($0) }
             let result = try await gitService.diff(at: baseURL, file: fileURL)
-            appendSystemStep(title: "Git diff", details: result.isEmpty ? "No changes." : result, status: .success)
+            appendActivity(.info(message: "Git diff"), details: result.isEmpty ? "No changes." : result)
         } catch {
-            appendSystemStep(title: "Git diff failed", details: error.localizedDescription, status: .failure)
+            appendActivity(.error(message: "Git diff failed"), details: error.localizedDescription)
         }
     }
 
@@ -584,9 +581,9 @@ final class AgentViewModel: ObservableObject {
         let pathURL = baseURL.appendingPathComponent(relativePath)
         do {
             let contents = try FileManager.default.contentsOfDirectory(atPath: pathURL.path)
-            appendSystemStep(title: "Directory listing", details: contents.joined(separator: ", "), status: .success)
+            appendActivity(.info(message: "Directory listing"), details: contents.joined(separator: ", "))
         } catch {
-            appendSystemStep(title: "List failed", details: error.localizedDescription, status: .failure)
+            appendActivity(.error(message: "List failed"), details: error.localizedDescription)
         }
     }
 }
