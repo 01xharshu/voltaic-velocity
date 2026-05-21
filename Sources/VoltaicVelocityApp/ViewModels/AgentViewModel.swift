@@ -19,6 +19,11 @@ final class AgentViewModel: ObservableObject {
     private var projectViewModel: ProjectViewModel?
     private var editorViewModel: EditorViewModel?
     private var terminalViewModel: TerminalViewModel?
+    private let coordinator = MultiAgentCoordinator()
+
+    init() {
+        self.coordinator.agentViewModel = self
+    }
 
     func link(projectViewModel: ProjectViewModel, editorViewModel: EditorViewModel, terminalViewModel: TerminalViewModel) {
         self.projectViewModel = projectViewModel
@@ -216,7 +221,7 @@ final class AgentViewModel: ObservableObject {
         return messages
     }
 
-    private func buildSystemPrompt() -> String {
+    func buildSystemPrompt() -> String {
         let projectDescription = projectViewModel?.projectStructureDescription ?? "No project open."
         let fileNames = projectViewModel?.workspaceItems.map { $0.name }.joined(separator: ", ") ?? "None"
 
@@ -253,12 +258,12 @@ final class AgentViewModel: ObservableObject {
         """
     }
 
-    private func appendAssistantText(_ text: String) {
+    func appendAssistantText(_ text: String) {
         guard let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) else { return }
         chatMessages[lastIndex].text += text
     }
 
-    private func appendActivity(_ kind: AgentActivity.Kind, details: String = "") {
+    func appendActivity(_ kind: AgentActivity.Kind, details: String = "") {
         guard let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) else { return }
         chatMessages[lastIndex].activities.append(AgentActivity(kind: kind, details: details))
     }
@@ -273,7 +278,7 @@ final class AgentViewModel: ObservableObject {
         }
     }
 
-    private func makeToolDefinitions() -> [OKJSONValue] {
+    func makeToolDefinitions() -> [OKJSONValue] {
         let toolObjects: [[String: OKJSONValue]] = [
             [
                 "type": .string("function"),
@@ -723,11 +728,16 @@ final class AgentViewModel: ObservableObject {
                 projectViewModel?.refreshWorkspace()
                 editorViewModel?.openFile(at: pending.fileURL)
                 appendActivity(.created(file: pending.fileURL.lastPathComponent))
+                
+                Task { await coordinator.runQA(fileChanged: pending.fileURL.lastPathComponent) }
+                
             case .edit:
                 try FileSystemService.shared.writeText(pending.newText, to: pending.fileURL)
                 projectViewModel?.refreshWorkspace()
                 editorViewModel?.openFile(at: pending.fileURL)
                 appendActivity(.editing(file: pending.fileURL.lastPathComponent, added: 0, removed: 0))
+                
+                Task { await coordinator.runQA(fileChanged: pending.fileURL.lastPathComponent) }
             }
         } catch {
             appendActivity(.error(message: "File action failed"), details: error.localizedDescription)

@@ -48,3 +48,11 @@ targets:
         ENABLE_HARDENED_RUNTIME: false
         CODE_SIGN_ENTITLEMENTS: VoltaicVelocity.entitlements
         SWIFT_STRICT_CONCURRENCY: minimal
+
+  VoltaicVelocityTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources: [Tests/VoltaicVelocityTests]
+    dependencies:
+      - target: VoltaicVelocity

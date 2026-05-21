@@ -102,6 +102,7 @@ enum AgentRole: String, CaseIterable, Codable, Identifiable {
     case coder
     case researcher
     case reviewer
+    case qa
     
     var id: String { self.rawValue }
     
@@ -144,10 +145,15 @@ func systemPrompt(for role: AgentRole, context: String) -> String {
         
     case .reviewer:
         basePrompt = """
-        You are the Reviewer & Tester Agent.
-        Review code for bugs, style, security, and performance.
-        Suggest and run tests via terminal tools.
-        Be critical but constructive.
+        You are the Reviewer Agent. Verify code for logic, style, and security.
+        Provide constructive feedback.
+        """
+        
+    case .qa:
+        basePrompt = """
+        You are the Quality Assurance (QA) Agent. Your responsibility is to analyze test results and code coverage.
+        If tests fail, use your tools to analyze the failure, modify the code to fix the bug, and re-run tests using `generate_tests`.
+        You ensure all code modifications are robust before they are presented to the user.
         """
     }
     
