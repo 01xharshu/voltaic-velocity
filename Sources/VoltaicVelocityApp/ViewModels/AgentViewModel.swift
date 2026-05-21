@@ -114,7 +114,7 @@ final class AgentViewModel: ObservableObject {
         }
 
         var messages = buildChatMessages(for: userText)
-        let tools = makeToolDefinitions()
+
 
         let assistant = ChatMessage(role: .assistant, text: "")
         chatMessages.append(assistant)
@@ -129,7 +129,7 @@ final class AgentViewModel: ObservableObject {
             var toolCallsMade: [OKChatResponse.Message.ToolCall] = []
 
             do {
-                let stream = await service.streamChat(model: selectedModel, messages: messages, tools: tools)
+                let stream = await service.streamChat(model: selectedModel, messages: messages, tools: nil)
                 for try await response in stream {
                     if let chunk = response.message?.content {
                         accumulatedText += chunk
@@ -156,6 +156,10 @@ final class AgentViewModel: ObservableObject {
                     if !trimmed.isEmpty {
                         if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
                             chatMessages[lastIndex].text = trimmed
+                        }
+                    } else {
+                        if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }), let firstTool = toolCallsMade.first?.function?.name {
+                            chatMessages[lastIndex].text = "Running `\(firstTool)`..."
                         }
                     }
                     var resultsText = ""
@@ -219,10 +223,15 @@ final class AgentViewModel: ObservableObject {
 
                 } else {
                     if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
-                        chatMessages[lastIndex].text = trimmed
+                        if trimmed.isEmpty {
+                            chatMessages[lastIndex].text = "I encountered an error or generated an empty response. Please try rephrasing."
+                            appendActivity(.error(message: "Empty response"), details: "The model returned nothing and used no tools.")
+                        } else {
+                            chatMessages[lastIndex].text = trimmed
+                            appendActivity(.info(message: "Completed"), details: "Agent completed the request.")
+                        }
                     }
                     taskCompleted = true
-                    appendActivity(.info(message: "Completed"), details: "Agent completed the request.")
                 }
                 
             } catch {
@@ -248,7 +257,36 @@ final class AgentViewModel: ObservableObject {
         isProcessing = false
     }
 
+    private func findFileURL(name: String, in items: [WorkspaceFile]) -> URL? {
+        for item in items {
+            if item.name == name { return item.url }
+            if let children = item.children, let found = findFileURL(name: name, in: children) {
+                return found
+            }
+        }
+        return nil
+    }
+
     private func buildChatMessages(for prompt: String) -> [OKChatRequestData.Message] {
+        var augmentedPrompt = prompt
+        if let projectVM = projectViewModel {
+            let words = prompt.split(separator: " ")
+            var injectedFiles = [String]()
+            for word in words {
+                if word.hasPrefix("@") {
+                    let filename = String(word.dropFirst())
+                    if let url = findFileURL(name: filename, in: projectVM.workspaceItems),
+                       let content = try? FileSystemService.shared.readText(from: url) {
+                        let truncated = content.count > 6000 ? String(content.prefix(6000)) + "\n... [Truncated]" : content
+                        injectedFiles.append("Context from \(filename):\n```\n\(truncated)\n```\n")
+                    }
+                }
+            }
+            if !injectedFiles.isEmpty {
+                augmentedPrompt = injectedFiles.joined(separator: "\n") + "\nUser Request: " + prompt
+            }
+        }
+
         var messages: [OKChatRequestData.Message] = []
         // Limit context to the last 20 messages to prevent context window overflow
         let recentMessages = chatMessages.suffix(20)
@@ -260,7 +298,7 @@ final class AgentViewModel: ObservableObject {
 
         let systemPrompt = buildSystemPrompt()
         messages.insert(OKChatRequestData.Message(role: .system, content: systemPrompt), at: 0)
-        messages.append(OKChatRequestData.Message(role: .user, content: prompt))
+        messages.append(OKChatRequestData.Message(role: .user, content: augmentedPrompt))
         return messages
     }
 
