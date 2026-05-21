@@ -138,6 +138,16 @@ struct AgentPanelView: View {
                         
                         Spacer()
                         
+                        Picker("", selection: $agentViewModel.autonomyLevel) {
+                            ForEach(AutonomyLevel.allCases, id: \.self) { level in
+                                Text(level.rawValue).tag(level)
+                            }
+                        }
+                        .labelsHidden()
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .font(.system(size: 11))
+                        
                         Toggle("Multi-Agent Team", isOn: $agentViewModel.isMultiAgentEnabled)
                             .toggleStyle(.switch)
                             .controlSize(.mini)

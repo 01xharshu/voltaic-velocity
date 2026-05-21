@@ -2,6 +2,12 @@ import Foundation
 import OllamaKit
 
 @MainActor
+public enum AutonomyLevel: String, CaseIterable {
+    case manual = "Manual Approval"
+    case autonomous = "Fully Autonomous"
+}
+
+@MainActor
 final class AgentViewModel: ObservableObject {
     @Published var chatMessages: [ChatMessage] = [ChatMessage(role: .system, text: "Voltaic Velocity AI agent ready. Use natural language to modify the project, write code, or run terminal commands.")]
     @Published var promptText = ""
@@ -13,6 +19,7 @@ final class AgentViewModel: ObservableObject {
     @Published var ollamaReachable = true
     @Published var availableModels: [String] = ["qwen2.5-coder:7b"]
     @Published var isMultiAgentEnabled = false
+    @Published var autonomyLevel: AutonomyLevel = .manual
 
     private let service = OllamaService()
     private let gitService = GitService()
@@ -743,7 +750,12 @@ final class AgentViewModel: ObservableObject {
             }
         )
 
-        appendActivity(.info(message: summary), details: "Review or confirm the generated code before applying.")
+        if autonomyLevel == .autonomous {
+            appendActivity(.info(message: summary), details: "Automatically applying action in Autonomous mode.")
+            await applyPendingAction()
+        } else {
+            appendActivity(.info(message: summary), details: "Review or confirm the generated code before applying.")
+        }
     }
 
     private func applyPendingAction() async {
