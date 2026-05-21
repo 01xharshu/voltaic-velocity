@@ -126,12 +126,18 @@ final class AgentViewModel: ObservableObject {
         while currentIteration < maxIterations && !taskCompleted && isProcessing {
             currentIteration += 1
             var accumulatedText = ""
+            var toolCallsMade: [StreamChatResponse.Message.ToolCall] = []
 
             do {
-                let stream = await service.streamChat(model: selectedModel, messages: messages, tools: nil)
+                let tools = makeToolDefinitions()
+                let stream = await service.streamChat(model: selectedModel, messages: messages, tools: tools)
                 for try await response in stream {
                     if let chunk = response.message?.content {
                         accumulatedText += chunk
+                    }
+                    
+                    if let tCalls = response.message?.tool_calls, !tCalls.isEmpty {
+                        toolCallsMade.append(contentsOf: tCalls)
                     }
 
                     if response.done {
@@ -159,7 +165,35 @@ final class AgentViewModel: ObservableObject {
                     }
                 }
 
-                if let jsonString = extractedJSON, let fullMatchRange = matchRange {
+                if !toolCallsMade.isEmpty {
+                    // Case 1: Native Ollama tool calls
+                    if !trimmed.isEmpty {
+                        if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
+                            chatMessages[lastIndex].text = trimmed
+                        }
+                    } else {
+                        if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }), let firstTool = toolCallsMade.first?.function?.name {
+                            chatMessages[lastIndex].text = "Running `\(firstTool)`..."
+                        }
+                    }
+                    var resultsText = ""
+                    for toolCall in toolCallsMade {
+                        if let function = toolCall.function, let name = function.name {
+                            appendActivity(.ranCommand(command: "Using tool: \(name)"), details: "Executing...")
+                            var argMap: [String: OKJSONValue] = [:]
+                            if let dict = function.arguments {
+                                for (k, v) in dict {
+                                    if let str = v as? String { argMap[k] = .string(str) }
+                                }
+                            }
+                            let resultStr = await handleToolCall(name: name, arguments: .object(argMap))
+                            resultsText += "Tool '\(name)' result:\n\(resultStr)\n\n"
+                            if name == "ask_user" { taskCompleted = true }
+                        }
+                    }
+                    messages.append(OKChatRequestData.Message(role: .user, content: resultsText))
+
+                } else if let jsonString = extractedJSON, let fullMatchRange = matchRange {
                     // Case 2: Model used <tool_call> tags or ```json block
                     var explanationText = accumulatedText
                     explanationText.removeSubrange(fullMatchRange)
