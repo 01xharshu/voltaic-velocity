@@ -243,12 +243,56 @@ final class AgentViewModel: ObservableObject {
                     if name == "ask_user" { taskCompleted = true }
 
                 } else {
+                    // Case 4: Final fallback. Detect if the model output raw code blocks.
+                    var finalDisplayText = trimmed
+                    
+                    do {
+                        let regex = try NSRegularExpression(pattern: "(?s)```[a-zA-Z]*\n(.*?)\n```")
+                        let matches = regex.matches(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed))
+                        
+                        if !matches.isEmpty {
+                            for match in matches.reversed() {
+                                if let codeRange = Range(match.range(at: 1), in: trimmed),
+                                   let fullMatchRange = Range(match.range, in: finalDisplayText) {
+                                    
+                                    let codeContent = String(trimmed[codeRange])
+                                    
+                                    var detectedFilename: String? = nil
+                                    let firstLine = codeContent.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespaces) ?? ""
+                                    
+                                    if firstLine.hasPrefix("<!--") && firstLine.hasSuffix("-->") {
+                                        detectedFilename = firstLine.replacingOccurrences(of: "<!--", with: "").replacingOccurrences(of: "-->", with: "").trimmingCharacters(in: .whitespaces)
+                                    } else if firstLine.hasPrefix("/*") && firstLine.hasSuffix("*/") {
+                                        detectedFilename = firstLine.replacingOccurrences(of: "/*", with: "").replacingOccurrences(of: "*/", with: "").trimmingCharacters(in: .whitespaces)
+                                    } else if firstLine.hasPrefix("//") {
+                                        detectedFilename = firstLine.replacingOccurrences(of: "//", with: "").trimmingCharacters(in: .whitespaces)
+                                    }
+                                    
+                                    if detectedFilename == nil || detectedFilename!.isEmpty {
+                                        detectedFilename = self.projectViewModel?.selectedFileURL?.lastPathComponent
+                                    }
+                                    let filename = detectedFilename ?? "untitled_file"
+                                    
+                                    let argMap: [String: OKJSONValue] = [
+                                        "path": .string(filename),
+                                        "content": .string(codeContent)
+                                    ]
+                                    
+                                    appendActivity(.ranCommand(command: "Auto-extracted code for \(filename)"), details: "Executing...")
+                                    _ = await handleToolCall(name: "edit_file", arguments: .object(argMap))
+                                    
+                                    finalDisplayText.replaceSubrange(fullMatchRange, with: "\n*(Auto-applied code to `\(filename)`)*\n")
+                                }
+                            }
+                        }
+                    } catch {}
+                    
                     if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
-                        if trimmed.isEmpty {
-                            chatMessages[lastIndex].text = "I encountered an error or generated an empty response. Please try rephrasing."
-                            appendActivity(.error(message: "Empty response"), details: "The model returned nothing and used no tools.")
+                        if finalDisplayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            chatMessages[lastIndex].text = "I've applied the changes."
+                            appendActivity(.info(message: "Completed"), details: "Agent finished silently.")
                         } else {
-                            chatMessages[lastIndex].text = trimmed
+                            chatMessages[lastIndex].text = finalDisplayText
                             appendActivity(.info(message: "Completed"), details: "Agent completed the request.")
                         }
                     }
