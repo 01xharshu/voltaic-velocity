@@ -202,7 +202,10 @@ final class AgentViewModel: ObservableObject {
 
     private func buildChatMessages(for prompt: String) -> [OKChatRequestData.Message] {
         var messages: [OKChatRequestData.Message] = []
-        for item in chatMessages {
+        // Limit context to the last 20 messages to prevent context window overflow
+        let recentMessages = chatMessages.suffix(20)
+        
+        for item in recentMessages {
             let role: OKChatRequestData.Message.Role = item.role == .user ? .user : item.role == .assistant ? .assistant : .system
             messages.append(OKChatRequestData.Message(role: role, content: item.text))
         }
@@ -237,6 +240,11 @@ final class AgentViewModel: ObservableObject {
         - list_files(path) — List directory contents
         - git_status() — Show git status
         - git_diff(path) — Show git diff
+        - apply_diff(file_path, diff_content) — Safely apply a unified diff to a file instead of full replace
+        - generate_tests(file_path) — Generate and automatically run unit tests for a specified file
+        - analyze_performance(command) — Run performance profiling or time analysis on a command
+        - web_search_local(query) — Search the web via a local SearXNG instance for external context
+        - ask_user(question) — Ask the user a clarifying question. Pauses the agent until answered
 
         Current project:
         \(projectDescription)
