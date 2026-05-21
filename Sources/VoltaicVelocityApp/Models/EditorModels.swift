@@ -55,6 +55,10 @@ struct AgentActivity: Identifiable {
         case completed
         case error(message: String)
         case info(message: String)
+        case askingUser(question: String)
+        case searchingWeb(query: String)
+        case runningTests(file: String)
+        case profiling(command: String)
     }
     let id = UUID()
     let kind: Kind

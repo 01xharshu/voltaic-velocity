@@ -116,6 +116,7 @@ final class AgentViewModel: ObservableObject {
                             appendActivity(.ranCommand(command: "Using tool: \(name)"), details: "Executing...")
                             let resultStr = await handleToolCall(name: name, arguments: function.arguments)
                             resultsText += "Tool '\(name)' result:\n\(resultStr)\n\n"
+                            if name == "ask_user" { taskCompleted = true }
                         }
                     }
                     messages.append(OKChatRequestData.Message(role: .user, content: resultsText))
@@ -141,6 +142,7 @@ final class AgentViewModel: ObservableObject {
                         appendActivity(.ranCommand(command: "Using tool: \(name)"), details: "Executing...")
                         let resultStr = await handleToolCall(name: name, arguments: .object(argMap))
                         messages.append(OKChatRequestData.Message(role: .user, content: "Tool '\(name)' result:\n\(resultStr)"))
+                        if name == "ask_user" { taskCompleted = true }
                     } else {
                         taskCompleted = true
                     }
@@ -165,6 +167,7 @@ final class AgentViewModel: ObservableObject {
                     appendActivity(.ranCommand(command: "Using tool: \(name)"), details: "Executing...")
                     let resultStr = await handleToolCall(name: name, arguments: .object(argMap))
                     messages.append(OKChatRequestData.Message(role: .user, content: "Tool '\(name)' result:\n\(resultStr)"))
+                    if name == "ask_user" { taskCompleted = true }
 
                 } else {
                     if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
@@ -427,6 +430,95 @@ final class AgentViewModel: ObservableObject {
                         "required": .array([])
                     ])
                 ])
+            ],
+            [
+                "type": .string("function"),
+                "function": .object([
+                    "name": .string("apply_diff"),
+                    "description": .string("Safely apply a unified diff to a file instead of full replace."),
+                    "parameters": .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "file_path": .object([
+                                "type": .string("string"),
+                                "description": .string("Relative path to the file."),
+                            ]),
+                            "diff_content": .object([
+                                "type": .string("string"),
+                                "description": .string("The unified diff content to apply."),
+                            ]),
+                        ]),
+                        "required": .array([.string("file_path"), .string("diff_content")])
+                    ])
+                ])
+            ],
+            [
+                "type": .string("function"),
+                "function": .object([
+                    "name": .string("generate_tests"),
+                    "description": .string("Generate and automatically run unit tests for a specified file."),
+                    "parameters": .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "file_path": .object([
+                                "type": .string("string"),
+                                "description": .string("Relative path to the file to test."),
+                            ]),
+                        ]),
+                        "required": .array([.string("file_path")])
+                    ])
+                ])
+            ],
+            [
+                "type": .string("function"),
+                "function": .object([
+                    "name": .string("analyze_performance"),
+                    "description": .string("Run performance profiling or time analysis on a command."),
+                    "parameters": .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "command": .object([
+                                "type": .string("string"),
+                                "description": .string("The shell command to profile."),
+                            ]),
+                        ]),
+                        "required": .array([.string("command")])
+                    ])
+                ])
+            ],
+            [
+                "type": .string("function"),
+                "function": .object([
+                    "name": .string("web_search_local"),
+                    "description": .string("Search the web via a local SearXNG instance for external context."),
+                    "parameters": .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "query": .object([
+                                "type": .string("string"),
+                                "description": .string("The search query."),
+                            ]),
+                        ]),
+                        "required": .array([.string("query")])
+                    ])
+                ])
+            ],
+            [
+                "type": .string("function"),
+                "function": .object([
+                    "name": .string("ask_user"),
+                    "description": .string("Ask the user a clarifying question. Pauses the agent until answered."),
+                    "parameters": .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "question": .object([
+                                "type": .string("string"),
+                                "description": .string("The question to ask the user."),
+                            ]),
+                        ]),
+                        "required": .array([.string("question")])
+                    ])
+                ])
             ]
         ]
         return toolObjects.map { .object($0) }
@@ -533,6 +625,58 @@ final class AgentViewModel: ObservableObject {
             let path = args["path"]?.stringValue()
             await performGitDiff(relativePath: path, baseURL: projectURL)
             return "Git diff requested."
+            
+        case "apply_diff":
+            guard let path = args["file_path"]?.stringValue(), let diffContent = args["diff_content"]?.stringValue() else {
+                return "Error: Missing file_path or diff_content."
+            }
+            // Simple heuristic: just write diff to a temp file and use system patch utility
+            let targetURL = projectURL.appendingPathComponent(path)
+            let tempDiffURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".patch")
+            do {
+                try diffContent.write(to: tempDiffURL, atomically: true, encoding: .utf8)
+                let command = "patch \(targetURL.path) < \(tempDiffURL.path)"
+                appendActivity(.ranCommand(command: command), details: "Applying diff to \(path)")
+                if let output = await terminalViewModel?.execute(command: command) {
+                    try? FileManager.default.removeItem(at: tempDiffURL)
+                    projectViewModel?.refreshWorkspace()
+                    return "Diff applied:\n\(output)"
+                }
+                return "Diff command executed but no output returned."
+            } catch {
+                return "Error applying diff: \(error.localizedDescription)"
+            }
+            
+        case "generate_tests":
+            guard let path = args["file_path"]?.stringValue() else { return "Error: Missing file_path." }
+            appendActivity(.runningTests(file: path), details: "Generating and running tests for \(path)")
+            let command = "swift test --filter \(path)" // Assuming Swift Package structure
+            await terminalViewModel?.appendOutput("$ \(command)\n")
+            if let output = await terminalViewModel?.execute(command: command) {
+                return output
+            }
+            return "Test command executed but no output returned."
+            
+        case "analyze_performance":
+            guard let command = args["command"]?.stringValue() else { return "Error: Missing command." }
+            appendActivity(.profiling(command: command), details: "Profiling command")
+            let timeCommand = "time \(command)"
+            await terminalViewModel?.appendOutput("$ \(timeCommand)\n")
+            if let output = await terminalViewModel?.execute(command: timeCommand) {
+                return output
+            }
+            return "Profile command executed but no output returned."
+            
+        case "web_search_local":
+            guard let query = args["query"]?.stringValue() else { return "Error: Missing query." }
+            appendActivity(.searchingWeb(query: query), details: "Searching local SearXNG")
+            // Stub implementation for now until SearXNG is set up
+            return "Web search stubbed. SearXNG is not currently running. Query: \(query)"
+            
+        case "ask_user":
+            guard let question = args["question"]?.stringValue() else { return "Error: Missing question." }
+            appendActivity(.askingUser(question: question), details: "Waiting for user input")
+            return "User was asked: \(question). The agent should stop and wait for their reply in the chat."
             
         default:
             appendActivity(.error(message: "Unknown tool call"), details: "Tool '\(name)' is not supported.")

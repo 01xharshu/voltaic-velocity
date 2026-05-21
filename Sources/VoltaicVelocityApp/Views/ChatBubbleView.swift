@@ -442,6 +442,45 @@ private struct ActivityRow: View {
             Text(message)
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
+        case .askingUser(let question):
+            HStack(spacing: 4) {
+                Text("Asked")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text(question.prefix(60) + (question.count > 60 ? "…" : ""))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.blue)
+                    .lineLimit(1)
+            }
+        case .searchingWeb(let query):
+            HStack(spacing: 4) {
+                Text("Searched Web")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text(query)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+            }
+        case .runningTests(let file):
+            HStack(spacing: 4) {
+                Text("Running Tests")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text(file)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.primary)
+            }
+        case .profiling(let command):
+            HStack(spacing: 4) {
+                Text("Profiling")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text(command.prefix(50) + (command.count > 50 ? "…" : ""))
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+            }
         }
     }
 
@@ -457,6 +496,10 @@ private struct ActivityRow: View {
         case .completed: return "checkmark.circle.fill"
         case .error: return "exclamationmark.triangle.fill"
         case .info: return "info.circle"
+        case .askingUser: return "person.fill.questionmark"
+        case .searchingWeb: return "globe"
+        case .runningTests: return "testtube.2"
+        case .profiling: return "speedometer"
         }
     }
 
@@ -472,6 +515,10 @@ private struct ActivityRow: View {
         case .completed: return .green
         case .error: return .red
         case .info: return .blue
+        case .askingUser: return .orange
+        case .searchingWeb: return .teal
+        case .runningTests: return .purple
+        case .profiling: return .orange
         }
     }
 
