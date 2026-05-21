@@ -302,8 +302,28 @@ final class AgentViewModel: ObservableObject {
         3. You MUST NEVER output raw code blocks (like ```html or ```js) to create or edit files. You MUST use the `create_file` or `edit_file` tools. If you output raw code blocks, the files will not be saved!
         4. When you DO need to use a tool, respond with a brief explanation of what you will do FIRST, then on a new line output the tool call JSON wrapped in <tool_call> tags like: <tool_call>{"name": "create_file", "arguments": {"path": "...", "content": "..."}}</tool_call>
         5. Never output raw JSON without explanation. Always talk to the user like a human.
-        6. If asked to create a website or HTML, make it beautiful with modern CSS, animations, and responsive design.
+        6. If asked to create a website or HTML, make it beautiful with modern CSS, animations, and responsive design. Do NOT write basic beginner-level code. Build advanced, full-fledged projects with headers, footers, beautiful cards, shadows, and modern styling.
         7. When you successfully complete a task, proactively suggest 2-3 relevant new features or improvements the user could add next to keep iterating!
+        8. If you need to edit an existing file or a linked CSS/JS file, you should read it first if you don't know the contents, then use the `edit_file` tool to update it. Do NOT make the user paste code. Do it yourself.
+
+        EXAMPLE OF A BAD RESPONSE (DO NOT DO THIS):
+        I will create the file for you.
+        ```html
+        <h1>Hello</h1>
+        ```
+
+        EXAMPLE OF A GOOD RESPONSE (DO THIS):
+        I will create the file for you.
+        <tool_call>
+        {
+          "name": "create_file",
+          "arguments": {
+            "path": "index.html",
+            "content": "<h1>Hello</h1>"
+          }
+        }
+        </tool_call>
+
 
         Available tools:
         - read_file(file_path) — Read the contents of a file
