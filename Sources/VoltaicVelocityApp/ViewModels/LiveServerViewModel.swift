@@ -20,7 +20,8 @@ final class LiveServerViewModel: ObservableObject {
     func startServer(in directory: URL?, activeFileURL: URL? = nil) {
         guard let directory = directory else { return }
         do {
-            try service.start(in: directory, port: port)
+            let actualPort = try service.start(in: directory, startingPort: port)
+            self.port = actualPort
             isRunning = true
             
             // Calculate the URL to open
