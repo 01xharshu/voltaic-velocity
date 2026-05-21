@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "VoltaicVelocity",
     platforms: [
-        .macOS(.v15)
+        .macOS("15")
     ],
     products: [
         .executable(
@@ -13,8 +13,8 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/mchakravarty/CodeEditorView.git", .exact("6.0.0-rc.0")),
-        .package(url: "https://github.com/kevinhermawan/OllamaKit.git", .exact("6.0.0-rc.0"))
+        .package(url: "https://github.com/mchakravarty/CodeEditorView.git", exact: "0.15.4"),
+        .package(url: "https://github.com/kevinhermawan/OllamaKit.git", exact: "5.0.5")
     ],
     targets: [
         .executableTarget(

@@ -94,7 +94,7 @@ final class GitViewModel: ObservableObject {
 
         do {
             _ = try await service.commit(at: projectURL, message: message)
-            try await gitStatus(projectURL: projectURL)
+            await gitStatus(projectURL: projectURL)
         } catch {
             updateError(error)
         }

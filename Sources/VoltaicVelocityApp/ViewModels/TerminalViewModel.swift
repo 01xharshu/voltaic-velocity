@@ -8,36 +8,61 @@ final class TerminalViewModel: ObservableObject {
     @Published var isRunningCommand = false
 
     private let service = TerminalService()
+    private var sessionStarted = false
 
     func restoreWorkingDirectory(from projectURL: URL?) {
         if let projectURL {
             workingDirectory = projectURL
         }
+        startSessionIfNeeded()
     }
 
+    func startSessionIfNeeded() {
+        guard !sessionStarted else { return }
+        sessionStarted = true
+        service.start(in: workingDirectory) { [weak self] text in
+            DispatchQueue.main.async {
+                self?.output += text
+            }
+        }
+    }
+
+    /// Send raw characters directly to the shell's stdin (for NSView keyboard capture)
+    func sendRawInput(_ chars: String) {
+        service.send(raw: chars)
+    }
+
+    /// Legacy: run a command string (used by the separate input field fallback & agent tool calls)
     func runCurrentCommand() {
         let command = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return }
         inputText = ""
-        Task {
-            await appendOutput("$ \(command)\n")
-            await execute(command: command)
-        }
+        service.send(command: command)
     }
 
-    func execute(command: String) async {
+    /// One-shot execution for agent tool calls
+    func execute(command: String) async -> String {
         isRunningCommand = true
         defer { isRunningCommand = false }
 
         do {
-            let results = try await service.run(command: command, in: workingDirectory)
-            await appendOutput(results + "\n")
+            let result = try await service.run(command: command, in: workingDirectory)
+            // Intentionally not appending to `output` so it doesn't pollute the user's main terminal.
+            return result
         } catch {
-            await appendOutput("Error: \(error.localizedDescription)\n")
+            return "Error: \(error.localizedDescription)"
         }
     }
 
     func appendOutput(_ text: String) async {
         output += text
+    }
+
+    func clearOutput() {
+        output = ""
+    }
+
+    deinit {
+        service.stop()
     }
 }

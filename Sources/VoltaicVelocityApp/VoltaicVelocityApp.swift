@@ -7,6 +7,7 @@ struct VoltaicVelocityApp: App {
     @StateObject private var terminalViewModel = TerminalViewModel()
     @StateObject private var gitViewModel = GitViewModel()
     @StateObject private var agentViewModel = AgentViewModel()
+    @StateObject private var liveServerViewModel = LiveServerViewModel()
 
     init() {
         // Ensure app remains responsive during long-running tool operations
@@ -20,7 +21,8 @@ struct VoltaicVelocityApp: App {
                 editorViewModel: editorViewModel,
                 terminalViewModel: terminalViewModel,
                 gitViewModel: gitViewModel,
-                agentViewModel: agentViewModel
+                agentViewModel: agentViewModel,
+                liveServerViewModel: liveServerViewModel
             )
             .frame(minWidth: 1300, minHeight: 800)
             .environmentObject(projectViewModel)
@@ -40,6 +42,17 @@ struct VoltaicVelocityApp: App {
                 }
                 .keyboardShortcut("k", modifiers: [.command])
             }
+
+            CommandGroup(replacing: .saveItem) {
+                Button("Save") {
+                    editorViewModel.saveActiveFile()
+                }
+                .keyboardShortcut("s", modifiers: [.command])
+            }
+        }
+
+        Settings {
+            SettingsView()
         }
     }
 }

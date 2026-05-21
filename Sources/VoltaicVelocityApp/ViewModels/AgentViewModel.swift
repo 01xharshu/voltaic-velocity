@@ -6,11 +6,14 @@ final class AgentViewModel: ObservableObject {
     @Published var chatMessages: [ChatMessage] = [ChatMessage(role: .system, text: "Voltaic Velocity AI agent ready. Use natural language to modify the project, write code, or run terminal commands.")]
     @Published var agentSteps: [AgentStep] = []
     @Published var promptText = ""
-    @Published var selectedModel = "qwen2.5-coder"
+    @Published var selectedModel = "qwen2.5-coder:7b"
     @Published var isAgentModePlanning = true
     @Published var isShowingCommandPalette = false
     @Published var isProcessing = false
     @Published var pendingFileAction: PendingFileAction?
+    @Published var ollamaReachable = true
+    @Published var availableModels: [String] = ["qwen2.5-coder:7b"]
+    @Published var isMultiAgentEnabled = false
 
     private let service = OllamaService()
     private let gitService = GitService()
@@ -43,6 +46,20 @@ final class AgentViewModel: ObservableObject {
         }
     }
 
+    func editPrompt(messageId: UUID) {
+        guard !isProcessing else { return }
+        if let index = chatMessages.firstIndex(where: { $0.id == messageId }), chatMessages[index].role == .user {
+            promptText = chatMessages[index].text
+            // Revert chat history up to this message
+            chatMessages = Array(chatMessages.prefix(upTo: index))
+        }
+    }
+
+    func stopProcessing() {
+        isProcessing = false
+        appendSystemStep(title: "Stopped", details: "User interrupted the agent.", status: .warning)
+    }
+
     private func streamResponse(for userText: String) async {
         guard let projectViewModel, let editorViewModel, let terminalViewModel else {
             appendSystemStep(title: "Missing context", details: "Project and editor context must be linked before sending prompts.", status: .failure)
@@ -50,46 +67,130 @@ final class AgentViewModel: ObservableObject {
             return
         }
 
-        let messages = buildChatMessages(for: userText)
+        var messages = buildChatMessages(for: userText)
         let tools = makeToolDefinitions()
 
-        var assistant = ChatMessage(role: .assistant, text: "")
+        let assistant = ChatMessage(role: .assistant, text: "")
         chatMessages.append(assistant)
-        var accumulatedText = ""
-        var toolCallHandled = false
 
-        do {
-            for try await response in service.streamChat(model: selectedModel, messages: messages, tools: tools) {
-                if let content = response.message?.content {
-                    let incoming = content
-                    if incoming.count > accumulatedText.count {
-                        let suffix = String(incoming.dropFirst(accumulatedText.count))
-                        accumulatedText = incoming
-                        appendAssistantText(suffix)
-                    }
-                }
+        let maxIterations = 5
+        var currentIteration = 0
+        var taskCompleted = false
 
-                if let toolCalls = response.message?.toolCalls, !toolCalls.isEmpty {
-                    for toolCall in toolCalls {
-                        if let function = toolCall.function, let name = function.name {
-                            toolCallHandled = true
-                            await handleToolCall(name: name, arguments: function.arguments)
+        while currentIteration < maxIterations && !taskCompleted && isProcessing {
+            currentIteration += 1
+            var accumulatedText = ""
+            var toolCallsMade: [OKChatResponse.Message.ToolCall] = []
+            
+            var inPlanBlock = false
+            var planStepID: UUID?
+
+            do {
+                let stream = await service.streamChat(model: selectedModel, messages: messages, tools: tools)
+                for try await response in stream {
+                    if let content = response.message?.content {
+                        let incoming = content
+                        if incoming.count > accumulatedText.count {
+                            let suffix = String(incoming.dropFirst(accumulatedText.count))
+                            accumulatedText = incoming
+                            
+                            // Plan block logic
+                            if !inPlanBlock, accumulatedText.contains("<plan>") {
+                                inPlanBlock = true
+                                let step = AgentStep(title: "Implementation Plan", details: "Thinking...", status: .running)
+                                planStepID = step.id
+                                agentSteps.append(step)
+                            }
+                            
+                            if inPlanBlock {
+                                let planStart = accumulatedText.range(of: "<plan>")?.upperBound ?? accumulatedText.startIndex
+                                let planEnd = accumulatedText.range(of: "</plan>")?.lowerBound ?? accumulatedText.endIndex
+                                
+                                if planStart <= planEnd {
+                                    let planText = String(accumulatedText[planStart..<planEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
+                                    if let stepID = planStepID,
+                                       let stepIndex = agentSteps.firstIndex(where: { $0.id == stepID }) {
+                                        agentSteps[stepIndex].details = planText.isEmpty ? "Thinking..." : planText
+                                    }
+                                }
+                                
+                                if accumulatedText.contains("</plan>") {
+                                    inPlanBlock = false
+                                    if let stepID = planStepID,
+                                       let stepIndex = agentSteps.firstIndex(where: { $0.id == stepID }) {
+                                        agentSteps[stepIndex].status = .success
+                                    }
+                                }
+                            } else {
+                                if accumulatedText.contains("</plan>") {
+                                    let cleanText = accumulatedText.replacingOccurrences(of: "(?s)<plan>.*?</plan>", with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+                                    if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
+                                        chatMessages[lastIndex].text = cleanText
+                                    }
+                                } else {
+                                    appendAssistantText(suffix)
+                                }
+                            }
                         }
                     }
-                }
 
-                if response.done {
-                    break
+                    if let tCalls = response.message?.toolCalls, !tCalls.isEmpty {
+                        toolCallsMade.append(contentsOf: tCalls)
+                    }
+
+                    if response.done {
+                        break
+                    }
                 }
+                
+                messages.append(OKChatRequestData.Message(role: .assistant, content: accumulatedText))
+
+                if toolCallsMade.isEmpty {
+                    // Manual tool call fallback
+                    if let range = accumulatedText.range(of: "(?s)(?<=<tool_call>).*?(?=</tool_call>)", options: [.regularExpression]) {
+                        let jsonString = String(accumulatedText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let data = jsonString.data(using: String.Encoding.utf8),
+                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let name = json["name"] as? String {
+                            
+                            var argMap: [String: OKJSONValue] = [:]
+                            if let dict = json["arguments"] as? [String: Any] {
+                                for (k, v) in dict {
+                                    if let str = v as? String { argMap[k] = .string(str) }
+                                }
+                            }
+                            
+                            let resultStr = await handleToolCall(name: name, arguments: .object(argMap))
+                            messages.append(OKChatRequestData.Message(role: .user, content: "Tool '\(name)' execution result:\n\(resultStr)"))
+                        } else {
+                            taskCompleted = true // Parse failed, end loop
+                        }
+                    } else {
+                        taskCompleted = true // No tool calls at all, finished
+                        appendSystemStep(title: "Completed", details: "Agent completed the request.", status: .success)
+                    }
+                } else {
+                    // Execute Ollama native tool calls
+                    var resultsText = ""
+                    for toolCall in toolCallsMade {
+                        if let function = toolCall.function, let name = function.name {
+                            let resultStr = await handleToolCall(name: name, arguments: function.arguments)
+                            resultsText += "Tool '\(name)' execution result:\n\(resultStr)\n\n"
+                        }
+                    }
+                    messages.append(OKChatRequestData.Message(role: .user, content: resultsText))
+                }
+                
+            } catch {
+                appendSystemStep(title: "Agent failed", details: error.localizedDescription, status: .failure)
+                appendAssistantText("\n[Error] \(error.localizedDescription)")
+                break // Break out of loop on error
             }
-            appendSystemStep(title: "Completed", details: "Agent completed the request.", status: .success)
-        } catch {
-            appendSystemStep(title: "Agent failed", details: error.localizedDescription, status: .failure)
-            appendAssistantText("\n[Error] \(error.localizedDescription)")
         }
 
-        if toolCallHandled {
-            appendSystemStep(title: "Action executed", details: "Tool calls were processed and project state updated.", status: .success)
+        if currentIteration >= maxIterations && !taskCompleted {
+            appendSystemStep(title: "Max iterations reached", details: "The agent stopped after 5 tool loops.", status: .warning)
+            appendAssistantText("\n[Stopped after maximum iterations]")
         }
 
         isProcessing = false
@@ -226,7 +327,7 @@ final class AgentViewModel: ObservableObject {
                     "description": .string("Get the current git status of the repository."),
                     "parameters": .object([
                         "type": .string("object"),
-                        "properties": .object([]),
+                        "properties": .object([:]),
                         "required": .array([])
                     ])
                 ])
@@ -252,10 +353,10 @@ final class AgentViewModel: ObservableObject {
         return toolObjects.map { .object($0) }
     }
 
-    private func handleToolCall(name: String, arguments: OKJSONValue?) async {
+    private func handleToolCall(name: String, arguments: OKJSONValue?) async -> String {
         guard let projectURL = projectViewModel?.projectURL else {
             appendSystemStep(title: "No project opened", details: "The agent attempted a tool call before a project folder was opened.", status: .failure)
-            return
+            return "Error: No project opened."
         }
 
         let args = arguments?.objectValue() ?? [:]
@@ -263,37 +364,100 @@ final class AgentViewModel: ObservableObject {
         case "create_file":
             guard let path = args["path"]?.stringValue(), let content = args["content"]?.stringValue() else {
                 appendSystemStep(title: "Invalid tool call", details: "create_file missing required arguments.", status: .warning)
-                return
+                return "Error: Missing path or content."
             }
-            await processFileAction(type: .create, relativePath: path, content: content, baseURL: projectURL)
+            // Create immediately
+            let targetURL = projectURL.appendingPathComponent(path)
+            let directory = targetURL.deletingLastPathComponent()
+            do {
+                try FileSystemService.shared.createFolderIfNeeded(at: directory)
+                try FileSystemService.shared.writeText(content, to: targetURL)
+                projectViewModel?.refreshWorkspace()
+                appendSystemStep(title: "Created \(targetURL.lastPathComponent)", details: "Created file.", status: .success)
+                return "File successfully created at \(path)."
+            } catch {
+                return "Error creating file: \(error.localizedDescription)"
+            }
+
+        case "read_file":
+            guard let path = args["file_path"]?.stringValue() else {
+                return "Error: Missing file_path."
+            }
+            let targetURL = projectURL.appendingPathComponent(path)
+            do {
+                let content = try FileSystemService.shared.readText(from: targetURL)
+                appendSystemStep(title: "Read \(path)", details: "Read \(content.count) characters.", status: .success)
+                return content
+            } catch {
+                return "Error reading file: \(error.localizedDescription)"
+            }
+
+        case "replace_in_file":
+            guard let path = args["file_path"]?.stringValue(),
+                  let oldString = args["old_string"]?.stringValue(),
+                  let newString = args["new_string"]?.stringValue() else {
+                return "Error: Missing arguments for replace_in_file."
+            }
+            let targetURL = projectURL.appendingPathComponent(path)
+            do {
+                let existingText = try FileSystemService.shared.readText(from: targetURL)
+                if !existingText.contains(oldString) {
+                    return "Error: old_string not found in file."
+                }
+                let newText = existingText.replacingOccurrences(of: oldString, with: newString)
+                await processFileAction(type: .edit, relativePath: path, content: newText, baseURL: projectURL)
+                return "Action queued for user review. Do not assume the file is updated until the user approves it."
+            } catch {
+                return "Error preparing replace_in_file: \(error.localizedDescription)"
+            }
+            
         case "edit_file":
+            // Fallback for edit_file if model still uses it
             guard let path = args["path"]?.stringValue(), let content = args["content"]?.stringValue() else {
                 appendSystemStep(title: "Invalid tool call", details: "edit_file missing required arguments.", status: .warning)
-                return
+                return "Error: Missing path or content."
             }
             await processFileAction(type: .edit, relativePath: path, content: content, baseURL: projectURL)
+            return "Edit action queued for user review."
+
         case "delete_file":
             guard let path = args["path"]?.stringValue() else {
                 appendSystemStep(title: "Invalid tool call", details: "delete_file missing required arguments.", status: .warning)
-                return
+                return "Error: Missing path."
             }
             await deleteFile(relativePath: path, baseURL: projectURL)
+            return "Delete action requested."
+
         case "run_terminal":
             guard let command = args["command"]?.stringValue() else {
                 appendSystemStep(title: "Invalid tool call", details: "run_terminal missing required arguments.", status: .warning)
-                return
+                return "Error: Missing command."
             }
-            await runTerminalCommand(command)
+            appendSystemStep(title: "Running command", details: command, status: .running)
+            await terminalViewModel?.appendOutput("$ \(command)\n")
+            if let output = await terminalViewModel?.execute(command: command) {
+                appendSystemStep(title: "Command finished", details: "Executed \(command)", status: .success)
+                return output
+            }
+            return "Command executed but no output returned."
+
         case "list_files":
             let path = args["path"]?.stringValue() ?? "."
             await listFiles(relativePath: path, baseURL: projectURL)
+            return "Directory listing requested."
+            
         case "git_status":
             await performGitStatus(baseURL: projectURL)
+            return "Git status requested."
+            
         case "git_diff":
             let path = args["path"]?.stringValue()
             await performGitDiff(relativePath: path, baseURL: projectURL)
+            return "Git diff requested."
+            
         default:
             appendSystemStep(title: "Unknown tool call", details: "Tool '\(name)' is not supported.", status: .warning)
+            return "Error: Tool '\(name)' is not supported."
         }
     }
 

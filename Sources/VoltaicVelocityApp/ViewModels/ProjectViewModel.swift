@@ -8,6 +8,9 @@ final class ProjectViewModel: ObservableObject {
     @Published var selectedFileURL: URL?
     @Published var isShowingCommandPalette = false
 
+    private var fileWatcherSource: DispatchSourceFileSystemObject?
+    private var fileDescriptor: Int32 = -1
+
     func openProjectFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -20,6 +23,7 @@ final class ProjectViewModel: ObservableObject {
         projectURL = url
         saveLastProject(url)
         refreshWorkspace()
+        startFileWatcher()
     }
 
     func restoreLastProject() {
@@ -28,6 +32,7 @@ final class ProjectViewModel: ObservableObject {
             if FileManager.default.fileExists(atPath: url.path) {
                 projectURL = url
                 refreshWorkspace()
+                startFileWatcher()
             }
         }
     }
@@ -57,7 +62,7 @@ final class ProjectViewModel: ObservableObject {
 
     func createFolder(named name: String, in directoryURL: URL? = nil) throws {
         guard let baseURL = directoryURL ?? projectURL else { throw FileSystemError.invalidProject }
-        try FileSystemService.shared.createFolder(named: name, in: baseURL)
+        _ = try FileSystemService.shared.createFolder(named: name, in: baseURL)
         refreshWorkspace()
     }
 
@@ -96,5 +101,47 @@ final class ProjectViewModel: ObservableObject {
 
     private func saveLastProject(_ url: URL) {
         UserDefaults.standard.set(url.path, forKey: "VoltaicVelocityLastProjectPath")
+    }
+
+    // MARK: — File Watcher
+    private func startFileWatcher() {
+        stopFileWatcher()
+        guard let projectURL else { return }
+
+        fileDescriptor = open(projectURL.path, O_EVTONLY)
+        guard fileDescriptor >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .rename, .delete, .link],
+            queue: DispatchQueue.global(qos: .utility)
+        )
+
+        source.setEventHandler { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self?.refreshWorkspace()
+            }
+        }
+
+        source.setCancelHandler { [weak self] in
+            if let fd = self?.fileDescriptor, fd >= 0 {
+                close(fd)
+                self?.fileDescriptor = -1
+            }
+        }
+
+        source.resume()
+        fileWatcherSource = source
+    }
+
+    private func stopFileWatcher() {
+        fileWatcherSource?.cancel()
+        fileWatcherSource = nil
+    }
+
+    deinit {
+        if fileDescriptor >= 0 {
+            close(fileDescriptor)
+        }
     }
 }

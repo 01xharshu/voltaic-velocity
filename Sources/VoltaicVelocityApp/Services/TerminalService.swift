@@ -1,29 +1,124 @@
 import Foundation
 
 final class TerminalService {
-    func run(command: String, in directory: URL?) async throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", command]
+    private var process: Process?
+    private var inputPipe: Pipe?
+    private var outputPipe: Pipe?
+    private var onOutput: ((String) -> Void)?
+    private let outputQueue = DispatchQueue(label: "terminal.output")
+
+    var isRunning: Bool {
+        process?.isRunning ?? false
+    }
+
+    func start(in directory: URL?, onOutput: @escaping (String) -> Void) {
+        self.onOutput = onOutput
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        proc.arguments = ["--login", "-i"]
 
         if let directory {
-            process.currentDirectoryURL = directory
+            proc.currentDirectoryURL = directory
         }
 
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
+        // Set up environment for interactive use
+        var env = ProcessInfo.processInfo.environment
+        env["TERM"] = "xterm-256color"
+        env["CLICOLOR"] = "1"
+        env["LANG"] = "en_US.UTF-8"
+        proc.environment = env
 
-        try process.run()
+        let inPipe = Pipe()
+        let outPipe = Pipe()
+        let errPipe = Pipe()
 
-        let outputData = try await outputPipe.fileHandleForReading.readToEnd() ?? Data()
-        process.waitUntilExit()
+        proc.standardInput = inPipe
+        proc.standardOutput = outPipe
+        proc.standardError = errPipe
+
+        // Read stdout asynchronously
+        outPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            let cleanText = text.strippingANSI()
+            self?.outputQueue.async {
+                self?.onOutput?(cleanText)
+            }
+        }
+
+        // Read stderr asynchronously
+        errPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            let cleanText = text.strippingANSI()
+            self?.outputQueue.async {
+                self?.onOutput?(cleanText)
+            }
+        }
+
+        proc.terminationHandler = { [weak self] _ in
+            self?.outputQueue.async {
+                self?.onOutput?("\r\n[Process exited]\r\n")
+            }
+        }
+
+        do {
+            try proc.run()
+            process = proc
+            inputPipe = inPipe
+            outputPipe = outPipe
+        } catch {
+            onOutput("[Failed to start shell: \(error.localizedDescription)]\n")
+        }
+    }
+
+    func send(command: String) {
+        guard let inputPipe, process?.isRunning == true else { return }
+        let data = (command + "\n").data(using: .utf8)!
+        inputPipe.fileHandleForWriting.write(data)
+    }
+
+    /// Send raw characters (no trailing newline) — used for real-time keystroke forwarding
+    func send(raw chars: String) {
+        guard let inputPipe, process?.isRunning == true else { return }
+        if let data = chars.data(using: .utf8) {
+            inputPipe.fileHandleForWriting.write(data)
+        }
+    }
+
+    func stop() {
+        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        process?.terminate()
+        process = nil
+        inputPipe = nil
+        outputPipe = nil
+        onOutput = nil
+    }
+
+    /// One-shot command execution (used by the agent for tool calls)
+    func run(command: String, in directory: URL?) async throws -> String {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        proc.arguments = ["-lc", command]
+
+        if let directory {
+            proc.currentDirectoryURL = directory
+        }
+
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = pipe
+
+        try proc.run()
+
+        let outputData = try pipe.fileHandleForReading.readToEnd() ?? Data()
+        proc.waitUntilExit()
 
         let result = String(data: outputData, encoding: .utf8) ?? ""
-        if process.terminationStatus != 0 {
-            throw TerminalError.exit(code: Int(process.terminationStatus), output: result)
+        if proc.terminationStatus != 0 {
+            throw TerminalError.exit(code: Int(proc.terminationStatus), output: result)
         }
-
         return result
     }
 }
@@ -36,5 +131,11 @@ enum TerminalError: LocalizedError {
         case .exit(let code, let output):
             return "Command exited with code \(code): \(output)"
         }
+    }
+}
+
+fileprivate extension String {
+    func strippingANSI() -> String {
+        return self.replacingOccurrences(of: "\u{1B}\\[[0-9;]*[a-zA-Z]", with: "", options: .regularExpression)
     }
 }

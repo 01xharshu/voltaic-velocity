@@ -4,17 +4,17 @@ import LanguageSupport
 enum CodeLanguage {
     static func configuration(for fileExtension: String) -> LanguageConfiguration {
         switch fileExtension.lowercased() {
-        case "swift": return .swift
-        case "py": return .python
-        case "js", "jsx", "ts", "tsx": return .javascript
-        case "json", "yaml", "yml", "plist": return .json
-        default: return .plainText
+        case "swift": return .swiftConfig
+        case "py": return .pythonConfig
+        case "js", "jsx", "ts", "tsx": return .javascriptConfig
+        case "json", "yaml", "yml", "plist": return .jsonConfig
+        default: return .plainTextConfig
         }
     }
 }
 
 extension LanguageConfiguration {
-    static let plainText = LanguageConfiguration(
+    static let plainTextConfig = LanguageConfiguration(
         name: "PlainText",
         supportsSquareBrackets: true,
         supportsCurlyBrackets: true,
@@ -22,28 +22,28 @@ extension LanguageConfiguration {
         indentationSensitiveScoping: false,
         stringRegex: nil,
         characterRegex: nil,
-        numberRegex: /(?:0x[0-9A-Fa-f]+|[0-9]+(?:\.[0-9]+)?)/,
+        numberRegex: #/(?:0x[0-9A-Fa-f]+|[0-9]+(?:\.[0-9]+)?)/#,
         singleLineComment: nil,
         nestedComment: nil,
-        identifierRegex: /[A-Za-z_][A-Za-z0-9_]*/,
-        operatorRegex: /[+\-*/%=<>!&|^~?]+/,
+        identifierRegex: #/[A-Za-z_][A-Za-z0-9_]*/#,
+        operatorRegex: #/[+\-*/%=<>!&|^~?]+/#,
         reservedIdentifiers: [],
         reservedOperators: []
     )
 
-    static let swift = LanguageConfiguration(
+    static let swiftConfig = LanguageConfiguration(
         name: "Swift",
         supportsSquareBrackets: true,
         supportsCurlyBrackets: true,
         caseInsensitiveReservedIdentifiers: false,
         indentationSensitiveScoping: false,
-        stringRegex: /"(?:\\.|[^"\\])*"/,
-        characterRegex: /'(?:\\.|[^'\\])'/,
-        numberRegex: /(?:0x[0-9A-Fa-f]+|[0-9]+(?:\.[0-9]+)?)/,
+        stringRegex: #/"(?:\\.|[^"\\])*"/#,
+        characterRegex: #/'(?:\\.|[^'\\])'/#,
+        numberRegex: #/(?:0x[0-9A-Fa-f]+|[0-9]+(?:\.[0-9]+)?)/#,
         singleLineComment: "//",
         nestedComment: ("/*", "*/"),
-        identifierRegex: /[A-Za-z_][A-Za-z0-9_]*/,
-        operatorRegex: /[+\-*/%=<>!&|^~?]+/,
+        identifierRegex: #/[A-Za-z_][A-Za-z0-9_]*/#,
+        operatorRegex: #/[+\-*/%=<>!&|^~?]+/#,
         reservedIdentifiers: [
             "let", "var", "func", "struct", "class", "enum", "protocol", "extension", "import",
             "if", "else", "for", "while", "return", "switch", "case", "default", "break", "continue",
@@ -52,19 +52,19 @@ extension LanguageConfiguration {
         reservedOperators: []
     )
 
-    static let python = LanguageConfiguration(
+    static let pythonConfig = LanguageConfiguration(
         name: "Python",
         supportsSquareBrackets: true,
         supportsCurlyBrackets: false,
         caseInsensitiveReservedIdentifiers: false,
         indentationSensitiveScoping: true,
-        stringRegex: /("""(?:.|\n)*?"""|'''(?:.|\n)*?'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/,
+        stringRegex: #/(?:"""(?:.|\n)*?"""|'''(?:.|\n)*?'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/#,
         characterRegex: nil,
-        numberRegex: /(?:0x[0-9A-Fa-f]+|[0-9]+(?:\.[0-9]+)?)/,
+        numberRegex: #/(?:0x[0-9A-Fa-f]+|[0-9]+(?:\.[0-9]+)?)/#,
         singleLineComment: "#",
         nestedComment: nil,
-        identifierRegex: /[A-Za-z_][A-Za-z0-9_]*/,
-        operatorRegex: /[+\-*/%=<>!&|^~?]+/,
+        identifierRegex: #/[A-Za-z_][A-Za-z0-9_]*/#,
+        operatorRegex: #/[+\-*/%=<>!&|^~?]+/#,
         reservedIdentifiers: [
             "def", "class", "import", "from", "as", "if", "elif", "else", "for", "while", "return", "try", "except", "finally",
             "with", "lambda", "pass", "break", "continue", "yield", "async", "await", "global", "nonlocal", "assert", "del", "raise"
@@ -72,38 +72,38 @@ extension LanguageConfiguration {
         reservedOperators: []
     )
 
-    static let javascript = LanguageConfiguration(
+    static let javascriptConfig = LanguageConfiguration(
         name: "JavaScript",
         supportsSquareBrackets: true,
         supportsCurlyBrackets: true,
         caseInsensitiveReservedIdentifiers: false,
         indentationSensitiveScoping: false,
-        stringRegex: /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/,
+        stringRegex: #/(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/#,
         characterRegex: nil,
-        numberRegex: /(?:0x[0-9A-Fa-f]+|[0-9]+(?:\.[0-9]+)?)/,
+        numberRegex: #/(?:0x[0-9A-Fa-f]+|[0-9]+(?:\.[0-9]+)?)/#,
         singleLineComment: "//",
         nestedComment: ("/*", "*/"),
-        identifierRegex: /[A-Za-z_\$][A-Za-z0-9_\$]*/,
-        operatorRegex: /[+\-*/%=<>!&|^~?]+/,
+        identifierRegex: #/[A-Za-z_\$][A-Za-z0-9_\$]*/#,
+        operatorRegex: #/[+\-*/%=<>!&|^~?]+/#,
         reservedIdentifiers: [
             "function", "const", "let", "var", "class", "import", "export", "default", "if", "else", "for", "while", "switch", "case", "break", "continue", "return", "try", "catch", "finally", "await", "async", "new", "this", "super"
         ],
         reservedOperators: []
     )
 
-    static let json = LanguageConfiguration(
+    static let jsonConfig = LanguageConfiguration(
         name: "JSON",
         supportsSquareBrackets: true,
         supportsCurlyBrackets: true,
         caseInsensitiveReservedIdentifiers: false,
         indentationSensitiveScoping: false,
-        stringRegex: /"(?:\\.|[^"\\])*"/,
+        stringRegex: #/"(?:\\.|[^"\\])*"/#,
         characterRegex: nil,
-        numberRegex: /(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/,
+        numberRegex: #/(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/#,
         singleLineComment: nil,
         nestedComment: nil,
-        identifierRegex: /[A-Za-z_][A-Za-z0-9_]*/,
-        operatorRegex: /[+\-*/%=<>!&|^~?]+/,
+        identifierRegex: #/[A-Za-z_][A-Za-z0-9_]*/#,
+        operatorRegex: #/[+\-*/%=<>!&|^~?]+/#,
         reservedIdentifiers: [],
         reservedOperators: []
     )
