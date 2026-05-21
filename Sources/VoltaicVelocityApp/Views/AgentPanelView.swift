@@ -309,15 +309,58 @@ struct AgentPanelView: View {
             Text("How can I help with your project?")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.primary)
-            Text("Ask me to write code, edit files, run commands, or analyze your workspace.")
-                .font(.system(size: 13))
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 280)
+
+            missionsGrid
+
             Spacer()
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
+    }
+
+    // MARK: — Missions Grid
+    private var missionsGrid: some View {
+        let columns = [
+            GridItem(.flexible(), spacing: 12),
+            GridItem(.flexible(), spacing: 12)
+        ]
+        
+        let missions: [(icon: String, title: String, prompt: String)] = [
+            ("hammer", "Refactor Architecture", "Refactor this module for better architecture"),
+            ("ladybug", "Error Handling", "Add full error handling + logging"),
+            ("swift", "SwiftUI Migration", "Convert this to SwiftUI from UIKit"),
+            ("bolt.fill", "Optimize Performance", "Optimize for performance")
+        ]
+        
+        return LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(missions, id: \.title) { mission in
+                Button(action: {
+                    agentViewModel.promptText = mission.prompt
+                    agentViewModel.sendPrompt()
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: mission.icon)
+                            .font(.system(size: 14))
+                            .foregroundColor(.accentColor)
+                        Text(mission.title)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                    .padding(12)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.15), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 16)
     }
 
     // MARK: — Typing Indicator
