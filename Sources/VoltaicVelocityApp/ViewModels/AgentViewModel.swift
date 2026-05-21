@@ -272,9 +272,14 @@ final class AgentViewModel: ObservableObject {
                                             let textBeforeBlock = String(trimmed[..<fullRange.lowerBound])
                                             let linesBefore = textBeforeBlock.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
                                             if let lastLine = linesBefore.last {
-                                                let words = lastLine.components(separatedBy: .whitespacesAndNewlines).map { $0.replacingOccurrences(of: "`", with: "").replacingOccurrences(of: ":", with: "").replacingOccurrences(of: "'", with: "").replacingOccurrences(of: "\"", with: "") }
+                                                let words = lastLine.components(separatedBy: .whitespacesAndNewlines).map { 
+                                                    $0.trimmingCharacters(in: CharacterSet(charactersIn: "`:'\",."))
+                                                }
                                                 if let fileWord = words.last(where: { $0.contains(".") && $0.count > 3 }) {
-                                                    detectedFilename = fileWord
+                                                    let parts = fileWord.split(separator: ".")
+                                                    if parts.count >= 2 && parts.last!.allSatisfy({ $0.isLetter }) {
+                                                        detectedFilename = fileWord
+                                                    }
                                                 }
                                             }
                                         }
