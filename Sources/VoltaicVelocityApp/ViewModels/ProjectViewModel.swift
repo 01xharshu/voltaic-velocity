@@ -7,6 +7,7 @@ final class ProjectViewModel: ObservableObject {
     @Published var workspaceItems: [WorkspaceFile] = []
     @Published var selectedFileURL: URL?
     @Published var isShowingCommandPalette = false
+    @Published var isIndexing = false
 
     private var fileWatcherSource: DispatchSourceFileSystemObject?
     private var fileDescriptor: Int32 = -1
@@ -56,11 +57,22 @@ final class ProjectViewModel: ObservableObject {
 
     func refreshWorkspace() {
         guard let projectURL else { return }
-        do {
-            workspaceItems = try FileSystemService.shared.loadDirectoryTree(at: projectURL)
-        } catch {
-            print("Failed to load project tree: \(error)")
-            workspaceItems = []
+        isIndexing = true
+        
+        Task.detached(priority: .userInitiated) {
+            do {
+                let items = try FileSystemService.shared.loadDirectoryTree(at: projectURL)
+                await MainActor.run {
+                    self.workspaceItems = items
+                    self.isIndexing = false
+                }
+            } catch {
+                await MainActor.run {
+                    print("Failed to load project tree: \(error)")
+                    self.workspaceItems = []
+                    self.isIndexing = false
+                }
+            }
         }
     }
 

@@ -23,6 +23,35 @@ final class AgentViewModel: ObservableObject {
 
     init() {
         self.coordinator.agentViewModel = self
+        Task {
+            await fetchAvailableModels()
+        }
+    }
+    
+    private func fetchAvailableModels() async {
+        do {
+            let fetchedModels = try await service.fetchModels()
+            await MainActor.run {
+                if !fetchedModels.isEmpty {
+                    // Sort models putting quantized (Q4/Q5) ones first as they are Apple Silicon / MLX optimized
+                    let sorted = fetchedModels.sorted { a, b in
+                        let aIsOpt = a.lowercased().contains("q4_") || a.lowercased().contains("q5_")
+                        let bIsOpt = b.lowercased().contains("q4_") || b.lowercased().contains("q5_")
+                        if aIsOpt == bIsOpt { return a < b }
+                        return aIsOpt && !bIsOpt
+                    }
+                    self.availableModels = sorted
+                    if !sorted.contains(self.selectedModel) {
+                        self.selectedModel = sorted.first!
+                    }
+                }
+                self.ollamaReachable = true
+            }
+        } catch {
+            await MainActor.run {
+                self.ollamaReachable = false
+            }
+        }
     }
 
     func link(projectViewModel: ProjectViewModel, editorViewModel: EditorViewModel, terminalViewModel: TerminalViewModel) {

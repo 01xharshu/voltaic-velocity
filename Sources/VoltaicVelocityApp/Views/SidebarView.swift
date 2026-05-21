@@ -16,6 +16,12 @@ struct SidebarView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
 
+                if projectViewModel.isIndexing {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 10, height: 10)
+                }
+
                 Spacer()
 
                 Button(action: {

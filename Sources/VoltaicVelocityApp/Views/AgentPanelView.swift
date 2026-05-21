@@ -126,7 +126,9 @@ struct AgentPanelView: View {
                         if !agentViewModel.availableModels.isEmpty {
                             Picker("", selection: $agentViewModel.selectedModel) {
                                 ForEach(agentViewModel.availableModels, id: \.self) { model in
-                                    Text(model).tag(model)
+                                    let isOpt = model.lowercased().contains("q4_") || model.lowercased().contains("q5_")
+                                    Text(isOpt ? "\(model) ⚡️ MLX Opt" : model)
+                                        .tag(model)
                                 }
                             }
                             .labelsHidden()
