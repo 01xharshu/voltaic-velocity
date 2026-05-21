@@ -36,6 +36,10 @@ actor OllamaService {
                     request.timeoutInterval = 300 // Explicitly set timeout on the request object itself
                     var requestDict = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(requestData)) as? [String: Any] ?? [:]
                     requestDict["stream"] = true
+                    
+                    // Increase context window so the agent can handle large files (e.g. 1000s of lines)
+                    requestDict["options"] = ["num_ctx": 32768]
+                    
                     request.httpBody = try JSONSerialization.data(withJSONObject: requestDict)
                     
                     let (result, response) = try await session.bytes(for: request)

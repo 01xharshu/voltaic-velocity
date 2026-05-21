@@ -302,6 +302,7 @@ final class AgentViewModel: ObservableObject {
         3. When you DO need to use a tool, respond with a brief explanation of what you will do FIRST, then on a new line output the tool call JSON wrapped in <tool_call> tags like: <tool_call>{"name": "create_file", "arguments": {"path": "...", "content": "..."}}</tool_call>
         4. Never output raw JSON without explanation. Always talk to the user like a human.
         5. If asked to create a website or HTML, make it beautiful with modern CSS, animations, and responsive design.
+        6. When you successfully complete a task, proactively suggest 2-3 relevant new features or improvements the user could add next to keep iterating!
 
         Available tools:
         - read_file(file_path) — Read the contents of a file
