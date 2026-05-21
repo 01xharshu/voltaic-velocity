@@ -1,9 +1,14 @@
 import SwiftUI
 
 struct ChatBubbleView: View {
+    enum FeedbackState {
+        case liked, disliked
+    }
+    
     let message: ChatMessage
     var onEdit: (() -> Void)? = nil
     @State private var isHovering = false
+    @State private var feedbackState: FeedbackState? = nil
 
     var body: some View {
         switch message.role {
@@ -126,12 +131,17 @@ struct ChatBubbleView: View {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(message.text, forType: .string)
                         }
-                        chatAction(icon: "hand.thumbsup", label: "Good") {
+                        chatAction(icon: feedbackState == .liked ? "hand.thumbsup.fill" : "hand.thumbsup", label: "Good") {
+                            feedbackState = .liked
                             FeedbackService.shared.saveFeedback(query: "", response: message.text, isPositive: true)
                         }
-                        chatAction(icon: "hand.thumbsdown", label: "Bad") {
+                        .foregroundColor(feedbackState == .liked ? .green : .secondary)
+                        
+                        chatAction(icon: feedbackState == .disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown", label: "Bad") {
+                            feedbackState = .disliked
                             FeedbackService.shared.saveFeedback(query: "", response: message.text, isPositive: false)
                         }
+                        .foregroundColor(feedbackState == .disliked ? .red : .secondary)
 
                         Spacer()
 
@@ -140,7 +150,7 @@ struct ChatBubbleView: View {
                             .foregroundColor(.secondary.opacity(0.5))
                     }
                     .padding(.top, 4)
-                    .opacity(isHovering ? 1 : 0)
+                    .opacity(isHovering || feedbackState != nil ? 1 : 0)
                     .animation(.easeInOut(duration: 0.15), value: isHovering)
                 }
             }
