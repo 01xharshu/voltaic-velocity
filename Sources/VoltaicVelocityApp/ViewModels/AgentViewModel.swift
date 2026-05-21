@@ -290,13 +290,22 @@ final class AgentViewModel: ObservableObject {
                                     }
                                     let filename = detectedFilename ?? "untitled_file"
                                     
-                                    let argMap: [String: OKJSONValue] = [
-                                        "path": .string(filename),
-                                        "content": .string(codeContent)
-                                    ]
-                                    
-                                    appendActivity(.ranCommand(command: "Auto-extracted code for \(filename)"), details: "Executing...")
-                                    _ = await handleToolCall(name: "edit_file", arguments: .object(argMap))
+                                    if let projectURL = self.projectViewModel?.projectURL {
+                                        let targetURL = projectURL.appendingPathComponent(filename)
+                                        let directory = targetURL.deletingLastPathComponent()
+                                        do {
+                                            try FileSystemService.shared.createFolderIfNeeded(at: directory)
+                                            try FileSystemService.shared.writeText(codeContent, to: targetURL)
+                                            self.projectViewModel?.refreshWorkspace()
+                                            let lineCount = codeContent.components(separatedBy: .newlines).count
+                                            self.recordFileChange(name: filename, added: lineCount, removed: 0)
+                                            self.appendActivity(.created(file: filename), details: "Automatically applied extracted code.")
+                                        } catch {
+                                            self.appendActivity(.error(message: "Auto-apply failed for \(filename)"), details: error.localizedDescription)
+                                        }
+                                    } else {
+                                        self.appendActivity(.error(message: "No project open"), details: "Could not auto-apply \(filename)")
+                                    }
                                     
                                     finalDisplayText.replaceSubrange(fullMatchRange, with: "\n*(Auto-applied code to `\(filename)`)*\n")
                                 }
