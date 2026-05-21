@@ -129,8 +129,7 @@ final class AgentViewModel: ObservableObject {
             var toolCallsMade: [StreamChatResponse.Message.ToolCall] = []
 
             do {
-                let tools = makeToolDefinitions()
-                let stream = await service.streamChat(model: selectedModel, messages: messages, tools: tools)
+                let stream = await service.streamChat(model: selectedModel, messages: messages, tools: nil)
                 for try await response in stream {
                     if let chunk = response.message?.content {
                         accumulatedText += chunk
@@ -266,6 +265,19 @@ final class AgentViewModel: ObservableObject {
                                         detectedFilename = firstLine.replacingOccurrences(of: "/*", with: "").replacingOccurrences(of: "*/", with: "").trimmingCharacters(in: .whitespaces)
                                     } else if firstLine.hasPrefix("//") {
                                         detectedFilename = firstLine.replacingOccurrences(of: "//", with: "").trimmingCharacters(in: .whitespaces)
+                                    }
+                                    
+                                    if detectedFilename == nil || detectedFilename!.isEmpty {
+                                        if let fullRange = Range(match.range, in: trimmed) {
+                                            let textBeforeBlock = String(trimmed[..<fullRange.lowerBound])
+                                            let linesBefore = textBeforeBlock.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                                            if let lastLine = linesBefore.last {
+                                                let words = lastLine.components(separatedBy: .whitespacesAndNewlines).map { $0.replacingOccurrences(of: "`", with: "").replacingOccurrences(of: ":", with: "").replacingOccurrences(of: "'", with: "").replacingOccurrences(of: "\"", with: "") }
+                                                if let fileWord = words.last(where: { $0.contains(".") && $0.count > 3 }) {
+                                                    detectedFilename = fileWord
+                                                }
+                                            }
+                                        }
                                     }
                                     
                                     if detectedFilename == nil || detectedFilename!.isEmpty {
