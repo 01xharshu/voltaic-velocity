@@ -145,11 +145,26 @@ final class AgentViewModel: ObservableObject {
                 // --- Determine what the model returned ---
                 let trimmed = accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines)
 
+                var extractedJSON: String? = nil
+                var matchRange: Range<String.Index>? = nil
+
                 if let range = accumulatedText.range(of: "(?s)(?<=<tool_call>).*?(?=</tool_call>)", options: [.regularExpression]) {
-                    // Case 2: Model used <tool_call> tags
-                    let jsonString = String(accumulatedText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                    // Show the text BEFORE the <tool_call> tag in the chat bubble
-                    let explanationText = accumulatedText.replacingOccurrences(of: "(?s)<tool_call>.*?</tool_call>", with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+                    extractedJSON = String(accumulatedText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    matchRange = accumulatedText.range(of: "(?s)<tool_call>.*?</tool_call>", options: [.regularExpression])
+                } else if let range = accumulatedText.range(of: "(?s)(?<=```json).*?(?=```)", options: [.regularExpression]) {
+                    let maybeJson = String(accumulatedText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if maybeJson.hasPrefix("{") && maybeJson.contains("\"name\"") {
+                        extractedJSON = maybeJson
+                        matchRange = accumulatedText.range(of: "(?s)```json.*?```", options: [.regularExpression])
+                    }
+                }
+
+                if let jsonString = extractedJSON, let fullMatchRange = matchRange {
+                    // Case 2: Model used <tool_call> tags or ```json block
+                    var explanationText = accumulatedText
+                    explanationText.removeSubrange(fullMatchRange)
+                    explanationText = explanationText.trimmingCharacters(in: .whitespacesAndNewlines)
+
                     if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
                         chatMessages[lastIndex].text = explanationText
                     }
