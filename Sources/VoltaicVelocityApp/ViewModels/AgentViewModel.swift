@@ -81,57 +81,12 @@ final class AgentViewModel: ObservableObject {
             currentIteration += 1
             var accumulatedText = ""
             var toolCallsMade: [OKChatResponse.Message.ToolCall] = []
-            
-            var inPlanBlock = false
-            var planStepID: UUID?
 
             do {
                 let stream = await service.streamChat(model: selectedModel, messages: messages, tools: tools)
                 for try await response in stream {
-                    if let content = response.message?.content {
-                        let incoming = content
-                        if incoming.count > accumulatedText.count {
-                            let suffix = String(incoming.dropFirst(accumulatedText.count))
-                            accumulatedText = incoming
-                            
-                            // Plan block logic
-                            if !inPlanBlock, accumulatedText.contains("<plan>") {
-                                inPlanBlock = true
-                                let step = AgentStep(title: "Implementation Plan", details: "Thinking...", status: .running)
-                                planStepID = step.id
-                                agentSteps.append(step)
-                            }
-                            
-                            if inPlanBlock {
-                                let planStart = accumulatedText.range(of: "<plan>")?.upperBound ?? accumulatedText.startIndex
-                                let planEnd = accumulatedText.range(of: "</plan>")?.lowerBound ?? accumulatedText.endIndex
-                                
-                                if planStart <= planEnd {
-                                    let planText = String(accumulatedText[planStart..<planEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
-                                    if let stepID = planStepID,
-                                       let stepIndex = agentSteps.firstIndex(where: { $0.id == stepID }) {
-                                        agentSteps[stepIndex].details = planText.isEmpty ? "Thinking..." : planText
-                                    }
-                                }
-                                
-                                if accumulatedText.contains("</plan>") {
-                                    inPlanBlock = false
-                                    if let stepID = planStepID,
-                                       let stepIndex = agentSteps.firstIndex(where: { $0.id == stepID }) {
-                                        agentSteps[stepIndex].status = .success
-                                    }
-                                }
-                            } else {
-                                if accumulatedText.contains("</plan>") {
-                                    let cleanText = accumulatedText.replacingOccurrences(of: "(?s)<plan>.*?</plan>", with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
-                                    if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
-                                        chatMessages[lastIndex].text = cleanText
-                                    }
-                                } else {
-                                    appendAssistantText(suffix)
-                                }
-                            }
-                        }
+                    if let chunk = response.message?.content {
+                        accumulatedText += chunk
                     }
 
                     if let tCalls = response.message?.toolCalls, !tCalls.isEmpty {
@@ -143,54 +98,114 @@ final class AgentViewModel: ObservableObject {
                     }
                 }
                 
+                // Add to conversation history
                 messages.append(OKChatRequestData.Message(role: .assistant, content: accumulatedText))
 
-                if toolCallsMade.isEmpty {
-                    // Manual tool call fallback
-                    if let range = accumulatedText.range(of: "(?s)(?<=<tool_call>).*?(?=</tool_call>)", options: [.regularExpression]) {
-                        let jsonString = String(accumulatedText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                        if let data = jsonString.data(using: String.Encoding.utf8),
-                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                           let name = json["name"] as? String {
-                            
-                            var argMap: [String: OKJSONValue] = [:]
-                            if let dict = json["arguments"] as? [String: Any] {
-                                for (k, v) in dict {
-                                    if let str = v as? String { argMap[k] = .string(str) }
-                                }
-                            }
-                            
-                            let resultStr = await handleToolCall(name: name, arguments: .object(argMap))
-                            messages.append(OKChatRequestData.Message(role: .user, content: "Tool '\(name)' execution result:\n\(resultStr)"))
-                        } else {
-                            taskCompleted = true // Parse failed, end loop
+                // --- Determine what the model returned ---
+                let trimmed = accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if !toolCallsMade.isEmpty {
+                    // Case 1: Native Ollama tool calls
+                    // Show explanation text (if any) in the chat bubble
+                    if !trimmed.isEmpty {
+                        if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
+                            chatMessages[lastIndex].text = trimmed
                         }
-                    } else {
-                        taskCompleted = true // No tool calls at all, finished
-                        appendSystemStep(title: "Completed", details: "Agent completed the request.", status: .success)
                     }
-                } else {
-                    // Execute Ollama native tool calls
                     var resultsText = ""
                     for toolCall in toolCallsMade {
                         if let function = toolCall.function, let name = function.name {
+                            appendSystemStep(title: "Running: \(name)", details: "Executing tool...", status: .running)
                             let resultStr = await handleToolCall(name: name, arguments: function.arguments)
-                            resultsText += "Tool '\(name)' execution result:\n\(resultStr)\n\n"
+                            resultsText += "Tool '\(name)' result:\n\(resultStr)\n\n"
+                            // Update the step to success
+                            if let lastStep = agentSteps.last {
+                                if let idx = agentSteps.firstIndex(where: { $0.id == lastStep.id }) {
+                                    agentSteps[idx].status = .success
+                                    agentSteps[idx].details = "Done."
+                                }
+                            }
                         }
                     }
                     messages.append(OKChatRequestData.Message(role: .user, content: resultsText))
+
+                } else if let range = accumulatedText.range(of: "(?s)(?<=<tool_call>).*?(?=</tool_call>)", options: [.regularExpression]) {
+                    // Case 2: Model used <tool_call> tags
+                    let jsonString = String(accumulatedText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    // Show the text BEFORE the <tool_call> tag in the chat bubble
+                    let explanationText = accumulatedText.replacingOccurrences(of: "(?s)<tool_call>.*?</tool_call>", with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
+                        chatMessages[lastIndex].text = explanationText
+                    }
+
+                    if let data = jsonString.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let name = json["name"] as? String {
+                        var argMap: [String: OKJSONValue] = [:]
+                        if let dict = json["arguments"] as? [String: Any] {
+                            for (k, v) in dict {
+                                if let str = v as? String { argMap[k] = .string(str) }
+                            }
+                        }
+                        appendSystemStep(title: "Running: \(name)", details: "Executing tool...", status: .running)
+                        let resultStr = await handleToolCall(name: name, arguments: .object(argMap))
+                        if let lastStep = agentSteps.last, let idx = agentSteps.firstIndex(where: { $0.id == lastStep.id }) {
+                            agentSteps[idx].status = .success
+                            agentSteps[idx].details = "Done."
+                        }
+                        messages.append(OKChatRequestData.Message(role: .user, content: "Tool '\(name)' result:\n\(resultStr)"))
+                    } else {
+                        taskCompleted = true
+                    }
+
+                } else if trimmed.hasPrefix("{") && trimmed.hasSuffix("}"),
+                          let data = trimmed.data(using: .utf8),
+                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let name = json["name"] as? String {
+                    // Case 3: Raw JSON tool call (model ignored <tool_call> instruction)
+                    // Do NOT show JSON in the chat bubble — replace with a human message
+                    if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
+                        let args = json["arguments"] as? [String: Any]
+                        let path = args?["path"] as? String ?? ""
+                        chatMessages[lastIndex].text = "I'll \(name.replacingOccurrences(of: "_", with: " ")) \(path.isEmpty ? "" : "`\(path)`") for you."
+                    }
+                    var argMap: [String: OKJSONValue] = [:]
+                    if let dict = json["arguments"] as? [String: Any] {
+                        for (k, v) in dict {
+                            if let str = v as? String { argMap[k] = .string(str) }
+                        }
+                    }
+                    appendSystemStep(title: "Running: \(name)", details: "Executing tool...", status: .running)
+                    let resultStr = await handleToolCall(name: name, arguments: .object(argMap))
+                    if let lastStep = agentSteps.last, let idx = agentSteps.firstIndex(where: { $0.id == lastStep.id }) {
+                        agentSteps[idx].status = .success
+                        agentSteps[idx].details = "Done."
+                    }
+                    messages.append(OKChatRequestData.Message(role: .user, content: "Tool '\(name)' result:\n\(resultStr)"))
+
+                } else {
+                    // Case 4: Plain text response (conversation)
+                    if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
+                        chatMessages[lastIndex].text = trimmed
+                    }
+                    taskCompleted = true
+                    appendSystemStep(title: "Completed", details: "Agent completed the request.", status: .success)
                 }
                 
             } catch {
                 appendSystemStep(title: "Agent failed", details: error.localizedDescription, status: .failure)
-                appendAssistantText("\n[Error] \(error.localizedDescription)")
-                break // Break out of loop on error
+                if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
+                    chatMessages[lastIndex].text += "\n⚠️ Error: \(error.localizedDescription)"
+                }
+                break
             }
         }
 
         if currentIteration >= maxIterations && !taskCompleted {
             appendSystemStep(title: "Max iterations reached", details: "The agent stopped after 5 tool loops.", status: .warning)
-            appendAssistantText("\n[Stopped after maximum iterations]")
+            if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
+                chatMessages[lastIndex].text += "\n[Stopped after maximum iterations]"
+            }
         }
 
         isProcessing = false
@@ -213,7 +228,30 @@ final class AgentViewModel: ObservableObject {
         let projectDescription = projectViewModel?.projectStructureDescription ?? "No project open."
         let fileNames = projectViewModel?.workspaceItems.map { $0.name }.joined(separator: ", ") ?? "None"
 
-        return "You are Voltaic Velocity, a native macOS project agent. The user asks for IDE changes, file creation, editing, deletion, terminal execution, or git workflow support. Use tool calls to create or modify files, run commands, inspect git status, or show git diffs.\n\nProject structure:\n\(projectDescription)\n\nOpen files: \(fileNames)\n\nTool names:\n- create_file(path, content)\n- edit_file(path, content)\n- delete_file(path)\n- run_terminal(command)\n- list_files(path)\n- git_status()\n- git_diff(path)\n\nAlways provide a clear action plan and use the tool call format only when mutating the filesystem or terminal."
+        return """
+        You are Volt, a friendly and helpful AI coding assistant inside Voltaic Velocity, a native macOS IDE.
+
+        CRITICAL RULES:
+        1. For normal conversation (greetings, questions, explanations), respond with plain text. Do NOT use any tools.
+        2. ONLY use tool calls when the user explicitly asks you to create, edit, delete files, or run commands.
+        3. When you DO need to use a tool, respond with a brief explanation of what you will do FIRST, then on a new line output the tool call JSON wrapped in <tool_call> tags like: <tool_call>{"name": "create_file", "arguments": {"path": "...", "content": "..."}}</tool_call>
+        4. Never output raw JSON without explanation. Always talk to the user like a human.
+        5. If asked to create a website or HTML, make it beautiful with modern CSS, animations, and responsive design.
+
+        Available tools:
+        - create_file(path, content) — Create a new file
+        - edit_file(path, content) — Replace file contents
+        - delete_file(path) — Delete a file
+        - run_terminal(command) — Run a shell command
+        - list_files(path) — List directory contents
+        - git_status() — Show git status
+        - git_diff(path) — Show git diff
+
+        Current project:
+        \(projectDescription)
+
+        Open files: \(fileNames)
+        """
     }
 
     private func appendAssistantText(_ text: String) {

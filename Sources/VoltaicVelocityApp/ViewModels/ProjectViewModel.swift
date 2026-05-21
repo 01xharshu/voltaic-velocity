@@ -27,13 +27,30 @@ final class ProjectViewModel: ObservableObject {
     }
 
     func restoreLastProject() {
-        if let path = UserDefaults.standard.string(forKey: "VoltaicVelocityLastProjectPath"), !path.isEmpty {
-            let url = URL(fileURLWithPath: path)
-            if FileManager.default.fileExists(atPath: url.path) {
-                projectURL = url
-                refreshWorkspace()
-                startFileWatcher()
+        if let bookmarkData = UserDefaults.standard.data(forKey: "VoltaicVelocityLastProjectBookmark") {
+            var isStale = false
+            do {
+                let url = try URL(resolvingBookmarkData: bookmarkData, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale)
+                if url.startAccessingSecurityScopedResource() {
+                    projectURL = url
+                    refreshWorkspace()
+                    startFileWatcher()
+                    if isStale {
+                        saveLastProject(url)
+                    }
+                }
+            } catch {
+                print("Failed to resolve bookmark: \(error)")
             }
+        }
+    }
+
+    private func saveLastProject(_ url: URL) {
+        do {
+            let bookmarkData = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+            UserDefaults.standard.set(bookmarkData, forKey: "VoltaicVelocityLastProjectBookmark")
+        } catch {
+            print("Failed to create bookmark: \(error)")
         }
     }
 
@@ -99,9 +116,7 @@ final class ProjectViewModel: ObservableObject {
         .joined(separator: "\n")
     }
 
-    private func saveLastProject(_ url: URL) {
-        UserDefaults.standard.set(url.path, forKey: "VoltaicVelocityLastProjectPath")
-    }
+
 
     // MARK: — File Watcher
     private func startFileWatcher() {
