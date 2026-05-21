@@ -21,6 +21,8 @@ final class AgentViewModel: ObservableObject {
     @Published var isMultiAgentEnabled = false
     @Published var autonomyLevel: AutonomyLevel = .manual
 
+    private var currentTask: Task<Void, Never>?
+
     private let service = OllamaService()
     private let gitService = GitService()
     private var projectViewModel: ProjectViewModel?
@@ -79,7 +81,10 @@ final class AgentViewModel: ObservableObject {
         promptText = ""
         isProcessing = true
 
-        Task {
+        isProcessing = true
+
+        currentTask?.cancel()
+        currentTask = Task {
             await streamResponse(for: userText)
         }
     }
@@ -95,6 +100,8 @@ final class AgentViewModel: ObservableObject {
 
     func stopProcessing() {
         isProcessing = false
+        currentTask?.cancel()
+        currentTask = nil
         appendActivity(.error(message: "User interrupted the agent."), details: "")
     }
 
@@ -284,7 +291,6 @@ final class AgentViewModel: ObservableObject {
         - apply_diff(file_path, diff_content) — Safely apply a unified diff to a file instead of full replace
         - generate_tests(file_path) — Generate and automatically run unit tests for a specified file
         - analyze_performance(command) — Run performance profiling or time analysis on a command
-        - web_search_local(query) — Search the web via a local SearXNG instance for external context
         - ask_user(question) — Ask the user a clarifying question. Pauses the agent until answered
 
         Current project:
@@ -538,23 +544,6 @@ final class AgentViewModel: ObservableObject {
             [
                 "type": .string("function"),
                 "function": .object([
-                    "name": .string("web_search_local"),
-                    "description": .string("Search the web via a local SearXNG instance for external context."),
-                    "parameters": .object([
-                        "type": .string("object"),
-                        "properties": .object([
-                            "query": .object([
-                                "type": .string("string"),
-                                "description": .string("The search query."),
-                            ]),
-                        ]),
-                        "required": .array([.string("query")])
-                    ])
-                ])
-            ],
-            [
-                "type": .string("function"),
-                "function": .object([
                     "name": .string("ask_user"),
                     "description": .string("Ask the user a clarifying question. Pauses the agent until answered."),
                     "parameters": .object([
@@ -602,13 +591,14 @@ final class AgentViewModel: ObservableObject {
             }
 
         case "read_file":
-            guard let path = args["file_path"]?.stringValue() else {
-                return "Error: Missing file_path."
-            }
+            guard let path = args["file_path"]?.stringValue() else { return "Error: Missing file_path." }
             let targetURL = projectURL.appendingPathComponent(path)
             do {
                 let content = try FileSystemService.shared.readText(from: targetURL)
                 appendActivity(.analyzing(file: targetURL.lastPathComponent, lines: "\(content.count) chars"), details: "Read \(path)")
+                if content.count > 6000 {
+                    return String(content.prefix(6000)) + "\n\n... [Content Truncated]"
+                }
                 return content
             } catch {
                 return "Error reading file: \(error.localizedDescription)"
@@ -623,8 +613,11 @@ final class AgentViewModel: ObservableObject {
             let targetURL = projectURL.appendingPathComponent(path)
             do {
                 let existingText = try FileSystemService.shared.readText(from: targetURL)
-                if !existingText.contains(oldString) {
+                let components = existingText.components(separatedBy: oldString)
+                if components.count - 1 == 0 {
                     return "Error: old_string not found in file."
+                } else if components.count - 1 > 1 {
+                    return "Error: old_string occurs \(components.count - 1) times in the file. It must occur exactly ONCE to prevent global corruption. Please provide a larger, more unique code snippet."
                 }
                 let newText = existingText.replacingOccurrences(of: oldString, with: newString)
                 await processFileAction(type: .edit, relativePath: path, content: newText, baseURL: projectURL)
@@ -664,7 +657,8 @@ final class AgentViewModel: ObservableObject {
         case "list_files":
             let path = args["path"]?.stringValue() ?? "."
             await listFiles(relativePath: path, baseURL: projectURL)
-            return "Directory listing requested."
+            // Just returning a confirmation string since UI receives real list
+            return "Directory listing requested. Note: Keep in mind not to read excessively large files."
             
         case "git_status":
             await performGitStatus(baseURL: projectURL)
@@ -699,7 +693,7 @@ final class AgentViewModel: ObservableObject {
         case "generate_tests":
             guard let path = args["file_path"]?.stringValue() else { return "Error: Missing file_path." }
             appendActivity(.runningTests(file: path), details: "Generating and running tests for \(path)")
-            let command = "swift test --filter \(path)" // Assuming Swift Package structure
+            let command = "xcodebuild test -project VoltaicVelocity.xcodeproj -scheme VoltaicVelocityTests -destination 'platform=macOS'"
             await terminalViewModel?.appendOutput("$ \(command)\n")
             if let output = await terminalViewModel?.execute(command: command) {
                 return output
@@ -715,12 +709,6 @@ final class AgentViewModel: ObservableObject {
                 return output
             }
             return "Profile command executed but no output returned."
-            
-        case "web_search_local":
-            guard let query = args["query"]?.stringValue() else { return "Error: Missing query." }
-            appendActivity(.searchingWeb(query: query), details: "Searching local SearXNG")
-            // Stub implementation for now until SearXNG is set up
-            return "Web search stubbed. SearXNG is not currently running. Query: \(query)"
             
         case "ask_user":
             guard let question = args["question"]?.stringValue() else { return "Error: Missing question." }

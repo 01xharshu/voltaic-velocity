@@ -24,6 +24,7 @@ final class MultiAgentCoordinator: ObservableObject {
         
         agentVM.appendActivity(.info(message: "Reviewer: Reviewing changes..."))
         let reviewerResponse = await callAgent(.reviewer, message: "Coder's Output: \(coderResponse)\nPlease review the changes.")
+        agentVM.appendAssistantText("🛠 **Reviewer Agent:**\n\(reviewerResponse)")
         
         agentVM.isProcessing = false
     }
@@ -35,6 +36,7 @@ final class MultiAgentCoordinator: ObservableObject {
         agentVM.appendActivity(.runningTests(file: fileChanged), details: "Executing test suite")
         
         let qaResponse = await callAgent(.qa, message: "The user just applied edits to \(fileChanged). Run `generate_tests` to verify it. If tests fail, fix it.")
+        agentVM.appendAssistantText("🧪 **QA Agent:**\n\(qaResponse)")
         
         agentVM.appendActivity(.info(message: "QA Completed: Verified the build."))
     }
