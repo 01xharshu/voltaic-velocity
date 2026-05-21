@@ -299,10 +299,11 @@ final class AgentViewModel: ObservableObject {
         CRITICAL RULES:
         1. For normal conversation (greetings, questions, explanations), respond with plain text. Do NOT use any tools.
         2. ONLY use tool calls when the user explicitly asks you to create, edit, delete files, or run commands.
-        3. When you DO need to use a tool, respond with a brief explanation of what you will do FIRST, then on a new line output the tool call JSON wrapped in <tool_call> tags like: <tool_call>{"name": "create_file", "arguments": {"path": "...", "content": "..."}}</tool_call>
-        4. Never output raw JSON without explanation. Always talk to the user like a human.
-        5. If asked to create a website or HTML, make it beautiful with modern CSS, animations, and responsive design.
-        6. When you successfully complete a task, proactively suggest 2-3 relevant new features or improvements the user could add next to keep iterating!
+        3. You MUST NEVER output raw code blocks (like ```html or ```js) to create or edit files. You MUST use the `create_file` or `edit_file` tools. If you output raw code blocks, the files will not be saved!
+        4. When you DO need to use a tool, respond with a brief explanation of what you will do FIRST, then on a new line output the tool call JSON wrapped in <tool_call> tags like: <tool_call>{"name": "create_file", "arguments": {"path": "...", "content": "..."}}</tool_call>
+        5. Never output raw JSON without explanation. Always talk to the user like a human.
+        6. If asked to create a website or HTML, make it beautiful with modern CSS, animations, and responsive design.
+        7. When you successfully complete a task, proactively suggest 2-3 relevant new features or improvements the user could add next to keep iterating!
 
         Available tools:
         - read_file(file_path) — Read the contents of a file
