@@ -1,6 +1,16 @@
 import Foundation
 import OllamaKit
 
+public struct StreamChatResponse: Decodable {
+    public struct Message: Decodable {
+        public let role: String?
+        public let content: String?
+    }
+    public let model: String?
+    public let message: Message?
+    public let done: Bool
+}
+
 actor OllamaService {
     private let client = OllamaKit()
 
@@ -11,7 +21,7 @@ actor OllamaService {
         return URLSession(configuration: config)
     }()
 
-    func streamChat(model: String, messages: [OKChatRequestData.Message], tools: [OKJSONValue]? = nil) -> AsyncThrowingStream<OKChatResponse, Error> {
+    func streamChat(model: String, messages: [OKChatRequestData.Message], tools: [OKJSONValue]? = nil) -> AsyncThrowingStream<StreamChatResponse, Error> {
         let requestData = OKChatRequestData(model: model, messages: messages, tools: tools)
         
         return AsyncThrowingStream { continuation in
@@ -36,7 +46,7 @@ actor OllamaService {
                     for try await line in result.lines {
                         guard let data = line.data(using: .utf8) else { continue }
                         do {
-                            let chatResponse = try JSONDecoder().decode(OKChatResponse.self, from: data)
+                            let chatResponse = try JSONDecoder().decode(StreamChatResponse.self, from: data)
                             continuation.yield(chatResponse)
                             if chatResponse.done {
                                 break
