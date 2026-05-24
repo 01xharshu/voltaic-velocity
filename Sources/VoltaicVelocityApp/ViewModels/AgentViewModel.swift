@@ -9,32 +9,127 @@ public enum AutonomyLevel: String, CaseIterable {
 
 @MainActor
 final class AgentViewModel: ObservableObject {
-    @Published var chatMessages: [ChatMessage] = [ChatMessage(role: .system, text: "Voltaic Velocity AI agent ready. Use natural language to modify the project, write code, or run terminal commands.")]
+    @Published var chatMessages: [ChatMessage] = [ChatMessage(role: .system, text: "Volt Velocity AI agent ready. Use natural language to modify the project, write code, or run terminal commands.")]
     @Published var promptText = ""
     @Published var selectedModel = "qwen2.5-coder:7b"
     @Published var isAgentModePlanning = true
     @Published var isShowingCommandPalette = false
     @Published var isProcessing = false
+    @Published var activeToolAction: String? = nil
+    @Published var activePendingEditCode: String? = nil
     @Published var pendingFileAction: PendingFileAction?
+    @Published var presentedDiff: PendingFileAction?
     @Published var ollamaReachable = true
     @Published var availableModels: [String] = ["qwen2.5-coder:7b"]
-    @Published var isMultiAgentEnabled = false
-    @Published var autonomyLevel: AutonomyLevel = .manual
+    @Published var isMultiAgentEnabled: Bool = {
+        if UserDefaults.standard.object(forKey: "isMultiAgentEnabled") == nil { return true }
+        return UserDefaults.standard.bool(forKey: "isMultiAgentEnabled")
+    }() {
+        didSet {
+            UserDefaults.standard.set(isMultiAgentEnabled, forKey: "isMultiAgentEnabled")
+        }
+    }
+    
+    @Published var autonomyLevel: AutonomyLevel = {
+        if let stored = UserDefaults.standard.string(forKey: "autonomyLevel"), let level = AutonomyLevel(rawValue: stored) {
+            return level
+        }
+        return .autonomous
+    }() {
+        didSet {
+            UserDefaults.standard.set(autonomyLevel.rawValue, forKey: "autonomyLevel")
+        }
+    }
+
+    @Published var useMLXEngine: Bool = UserDefaults.standard.bool(forKey: "useMLXEngine") {
+        didSet {
+            UserDefaults.standard.set(useMLXEngine, forKey: "useMLXEngine")
+            Task { await fetchAvailableModels() }
+        }
+    }
 
     private var currentTask: Task<Void, Never>?
 
-    private let service = OllamaService()
+    private let ollamaService = OllamaService()
+    private let mlxService = MLXService()
+    
+    private var service: any AIServiceProtocol {
+        useMLXEngine ? mlxService : ollamaService
+    }
+    
     private let gitService = GitService()
     private var projectViewModel: ProjectViewModel?
     private var editorViewModel: EditorViewModel?
-    private var terminalViewModel: TerminalViewModel?
+    private var terminalManager: TerminalManagerViewModel?
     private let coordinator = MultiAgentCoordinator()
 
+    @Published var activeChatId: UUID = {
+        if let stored = UserDefaults.standard.string(forKey: "activeChatId"), let id = UUID(uuidString: stored) {
+            return id
+        }
+        return UUID()
+    }() {
+        didSet {
+            UserDefaults.standard.set(activeChatId.uuidString, forKey: "activeChatId")
+        }
+    }
+    
     init() {
         self.coordinator.agentViewModel = self
+        loadHistory(id: activeChatId)
         Task {
             await fetchAvailableModels()
         }
+    }
+    
+    func saveHistory() {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("VoltaicVelocityChats")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("\(activeChatId.uuidString).json")
+        do {
+            let data = try JSONEncoder().encode(chatMessages)
+            try data.write(to: url)
+        } catch {
+            print("Failed to save history: \(error)")
+        }
+    }
+
+    func loadHistory(id: UUID) {
+        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("VoltaicVelocityChats/\(id.uuidString).json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            let msgs = try JSONDecoder().decode([ChatMessage].self, from: data)
+            if !msgs.isEmpty {
+                self.chatMessages = msgs
+            }
+        } catch {
+            print("Failed to load history: \(error)")
+        }
+    }
+    
+    func getAllChatSessions() -> [(id: UUID, date: Date, title: String)] {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("VoltaicVelocityChats")
+        guard let urls = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey]) else { return [] }
+        
+        var sessions: [(UUID, Date, String)] = []
+        for url in urls where url.pathExtension == "json" {
+            guard let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent) else { continue }
+            let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let date = attrs?[.creationDate] as? Date ?? Date()
+            
+            // Try to extract title from first user message
+            var title = "New Chat"
+            if let data = try? Data(contentsOf: url),
+               let msgs = try? JSONDecoder().decode([ChatMessage].self, from: data),
+               let firstUser = msgs.first(where: { $0.role == .user }) {
+                title = String(firstUser.text.prefix(30))
+                if firstUser.text.count > 30 { title += "..." }
+            }
+            
+            sessions.append((id, date, title))
+        }
+        return sessions.sorted(by: { $0.1 > $1.1 })
     }
     
     private func fetchAvailableModels() async {
@@ -63,24 +158,25 @@ final class AgentViewModel: ObservableObject {
         }
     }
 
-    func link(projectViewModel: ProjectViewModel, editorViewModel: EditorViewModel, terminalViewModel: TerminalViewModel) {
+    func link(projectViewModel: ProjectViewModel, editorViewModel: EditorViewModel, terminalManager: TerminalManagerViewModel) {
         self.projectViewModel = projectViewModel
         self.editorViewModel = editorViewModel
-        self.terminalViewModel = terminalViewModel
+        self.terminalManager = terminalManager
     }
 
     func startNewChat() {
-        chatMessages = [ChatMessage(role: .system, text: "You are the Voltaic Velocity project agent. Use tool calls to modify files, run terminal commands, and analyze the workspace.")]
+        activeChatId = UUID()
+        chatMessages = [ChatMessage(role: .system, text: "You are the Volt Velocity project agent. Use tool calls to modify files, run terminal commands, and analyze the workspace.")]
         promptText = ""
+        saveHistory()
     }
 
     func sendPrompt() {
         guard !promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let userText = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
         chatMessages.append(ChatMessage(role: .user, text: userText))
+        saveHistory()
         promptText = ""
-        isProcessing = true
-
         isProcessing = true
 
         currentTask?.cancel()
@@ -103,249 +199,92 @@ final class AgentViewModel: ObservableObject {
         currentTask?.cancel()
         currentTask = nil
         appendActivity(.error(message: "User interrupted the agent."), details: "")
+        saveHistory()
     }
 
     private func streamResponse(for userText: String) async {
         let startTime = Date()
-        guard let _ = projectViewModel, let _ = editorViewModel, let _ = terminalViewModel else {
-            appendActivity(.error(message: "Missing context"), details: "Project and editor context must be linked before sending prompts.")
+        isProcessing = true
+        
+        let assistant = ChatMessage(role: .assistant, text: "")
+        chatMessages.append(assistant)
+        
+        guard let url = URL(string: "ws://127.0.0.1:8000/ws") else {
+            appendActivity(.error(message: "Invalid WebSocket URL"), details: "")
             isProcessing = false
             return
         }
-
-        var messages = buildChatMessages(for: userText)
-
-
-        let assistant = ChatMessage(role: .assistant, text: "")
-        chatMessages.append(assistant)
-
-        let maxIterations = 5
-        var currentIteration = 0
-        var taskCompleted = false
-
-        while currentIteration < maxIterations && !taskCompleted && isProcessing {
-            currentIteration += 1
-            var accumulatedText = ""
-            var toolCallsMade: [StreamChatResponse.Message.ToolCall] = []
-
+        
+        let session = URLSession(configuration: .default)
+        let webSocketTask = session.webSocketTask(with: url)
+        webSocketTask.resume()
+        
+        let requestDict: [String: Any] = ["prompt": userText]
+        if let data = try? JSONSerialization.data(withJSONObject: requestDict),
+           let string = String(data: data, encoding: .utf8) {
+            try? await webSocketTask.send(.string(string))
+        }
+        
+        func receiveMessage() async {
             do {
-                let stream = await service.streamChat(model: selectedModel, messages: messages, tools: nil)
-                for try await response in stream {
-                    if let chunk = response.message?.content {
-                        accumulatedText += chunk
-                    }
-                    
-                    if let tCalls = response.message?.tool_calls, !tCalls.isEmpty {
-                        toolCallsMade.append(contentsOf: tCalls)
-                    }
-
-                    if response.done {
-                        break
-                    }
-                }
-                
-                // Add to conversation history
-                messages.append(OKChatRequestData.Message(role: .assistant, content: accumulatedText))
-
-                // --- Determine what the model returned ---
-                let trimmed = accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                var extractedJSON: String? = nil
-                var matchRange: Range<String.Index>? = nil
-
-                if let range = accumulatedText.range(of: "(?s)(?<=<tool_call>).*?(?=</tool_call>)", options: [.regularExpression]) {
-                    extractedJSON = String(accumulatedText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                    matchRange = accumulatedText.range(of: "(?s)<tool_call>.*?</tool_call>", options: [.regularExpression])
-                } else if let range = accumulatedText.range(of: "(?s)(?<=```json).*?(?=```)", options: [.regularExpression]) {
-                    let maybeJson = String(accumulatedText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                    if maybeJson.hasPrefix("{") && maybeJson.contains("\"name\"") {
-                        extractedJSON = maybeJson
-                        matchRange = accumulatedText.range(of: "(?s)```json.*?```", options: [.regularExpression])
-                    }
-                }
-
-                if !toolCallsMade.isEmpty {
-                    // Case 1: Native Ollama tool calls
-                    if !trimmed.isEmpty {
-                        if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
-                            chatMessages[lastIndex].text = trimmed
-                        }
-                    } else {
-                        if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }), let firstTool = toolCallsMade.first?.function?.name {
-                            chatMessages[lastIndex].text = "Running `\(firstTool)`..."
-                        }
-                    }
-                    var resultsText = ""
-                    for toolCall in toolCallsMade {
-                        if let function = toolCall.function, let name = function.name {
-                            appendActivity(.ranCommand(command: "Using tool: \(name)"), details: "Executing...")
-                            var argMap: [String: OKJSONValue] = [:]
-                            if let dict = function.arguments {
-                                for (k, v) in dict {
-                                    if let str = v as? String { argMap[k] = .string(str) }
-                                }
-                            }
-                            let resultStr = await handleToolCall(name: name, arguments: .object(argMap))
-                            resultsText += "Tool '\(name)' result:\n\(resultStr)\n\n"
-                            if name == "ask_user" { taskCompleted = true }
-                        }
-                    }
-                    messages.append(OKChatRequestData.Message(role: .user, content: resultsText))
-
-                } else if let jsonString = extractedJSON, let fullMatchRange = matchRange {
-                    // Case 2: Model used <tool_call> tags or ```json block
-                    var explanationText = accumulatedText
-                    explanationText.removeSubrange(fullMatchRange)
-                    explanationText = explanationText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                    if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
-                        chatMessages[lastIndex].text = explanationText
-                    }
-
-                    if let data = jsonString.data(using: .utf8),
-                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let name = json["name"] as? String {
-                        var argMap: [String: OKJSONValue] = [:]
-                        if let dict = json["arguments"] as? [String: Any] {
-                            for (k, v) in dict {
-                                if let str = v as? String { argMap[k] = .string(str) }
-                            }
-                        }
-                        appendActivity(.ranCommand(command: "Using tool: \(name)"), details: "Executing...")
-                        let resultStr = await handleToolCall(name: name, arguments: .object(argMap))
-                        messages.append(OKChatRequestData.Message(role: .user, content: "Tool '\(name)' result:\n\(resultStr)"))
-                        if name == "ask_user" { taskCompleted = true }
-                    } else {
-                        taskCompleted = true
-                    }
-
-                } else if trimmed.hasPrefix("{") && trimmed.hasSuffix("}"),
-                          let data = trimmed.data(using: .utf8),
-                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                          let name = json["name"] as? String {
-                    // Case 3: Raw JSON tool call (model ignored <tool_call> instruction)
-                    // Do NOT show JSON in the chat bubble — replace with a human message
-                    if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
-                        let args = json["arguments"] as? [String: Any]
-                        let path = args?["path"] as? String ?? ""
-                        chatMessages[lastIndex].text = "I'll \(name.replacingOccurrences(of: "_", with: " ")) \(path.isEmpty ? "" : "`\(path)`") for you."
-                    }
-                    var argMap: [String: OKJSONValue] = [:]
-                    if let dict = json["arguments"] as? [String: Any] {
-                        for (k, v) in dict {
-                            if let str = v as? String { argMap[k] = .string(str) }
-                        }
-                    }
-                    appendActivity(.ranCommand(command: "Using tool: \(name)"), details: "Executing...")
-                    let resultStr = await handleToolCall(name: name, arguments: .object(argMap))
-                    messages.append(OKChatRequestData.Message(role: .user, content: "Tool '\(name)' result:\n\(resultStr)"))
-                    if name == "ask_user" { taskCompleted = true }
-
-                } else {
-                    // Case 4: Final fallback. Detect if the model output raw code blocks.
-                    var finalDisplayText = trimmed
-                    
-                    do {
-                        let regex = try NSRegularExpression(pattern: "(?s)```[a-zA-Z]*\n(.*?)\n```")
-                        let matches = regex.matches(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed))
+                let message = try await webSocketTask.receive()
+                switch message {
+                case .string(let text):
+                    if let data = text.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                         
-                        if !matches.isEmpty {
-                            for match in matches.reversed() {
-                                if let codeRange = Range(match.range(at: 1), in: trimmed),
-                                   let fullMatchRange = Range(match.range, in: finalDisplayText) {
-                                    
-                                    let codeContent = String(trimmed[codeRange])
-                                    
-                                    var detectedFilename: String? = nil
-                                    let firstLine = codeContent.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespaces) ?? ""
-                                    
-                                    if firstLine.hasPrefix("<!--") && firstLine.hasSuffix("-->") {
-                                        detectedFilename = firstLine.replacingOccurrences(of: "<!--", with: "").replacingOccurrences(of: "-->", with: "").trimmingCharacters(in: .whitespaces)
-                                    } else if firstLine.hasPrefix("/*") && firstLine.hasSuffix("*/") {
-                                        detectedFilename = firstLine.replacingOccurrences(of: "/*", with: "").replacingOccurrences(of: "*/", with: "").trimmingCharacters(in: .whitespaces)
-                                    } else if firstLine.hasPrefix("//") {
-                                        detectedFilename = firstLine.replacingOccurrences(of: "//", with: "").trimmingCharacters(in: .whitespaces)
+                        if let type = json["type"] as? String {
+                            await MainActor.run {
+                                if type == "token", let token = json["text"] as? String {
+                                    if let lastIndex = self.chatMessages.lastIndex(where: { $0.role == .assistant }) {
+                                        self.chatMessages[lastIndex].text += token
                                     }
-                                    
-                                    if detectedFilename == nil || detectedFilename!.isEmpty {
-                                        if let fullRange = Range(match.range, in: trimmed) {
-                                            let textBeforeBlock = String(trimmed[..<fullRange.lowerBound])
-                                            let linesBefore = textBeforeBlock.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-                                            if let lastLine = linesBefore.last {
-                                                let words = lastLine.components(separatedBy: .whitespacesAndNewlines).map { 
-                                                    $0.trimmingCharacters(in: CharacterSet(charactersIn: "`:'\",."))
-                                                }
-                                                if let fileWord = words.last(where: { $0.contains(".") && $0.count > 3 }) {
-                                                    let parts = fileWord.split(separator: ".")
-                                                    if parts.count >= 2 && parts.last!.allSatisfy({ $0.isLetter }) {
-                                                        detectedFilename = fileWord
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    
-                                    if detectedFilename == nil || detectedFilename!.isEmpty {
-                                        detectedFilename = self.projectViewModel?.selectedFileURL?.lastPathComponent
-                                    }
-                                    let filename = detectedFilename ?? "untitled_file"
-                                    
-                                    if let projectURL = self.projectViewModel?.projectURL {
-                                        let targetURL = projectURL.appendingPathComponent(filename)
-                                        let directory = targetURL.deletingLastPathComponent()
-                                        do {
-                                            try FileSystemService.shared.createFolderIfNeeded(at: directory)
-                                            try FileSystemService.shared.writeText(codeContent, to: targetURL)
-                                            self.projectViewModel?.refreshWorkspace()
-                                            let lineCount = codeContent.components(separatedBy: .newlines).count
-                                            self.recordFileChange(name: filename, added: lineCount, removed: 0)
-                                            self.appendActivity(.created(file: filename), details: "Automatically applied extracted code.")
-                                        } catch {
-                                            self.appendActivity(.error(message: "Auto-apply failed for \(filename)"), details: error.localizedDescription)
-                                        }
-                                    } else {
-                                        self.appendActivity(.error(message: "No project open"), details: "Could not auto-apply \(filename)")
-                                    }
-                                    
-                                    finalDisplayText.replaceSubrange(fullMatchRange, with: "\n*(Auto-applied code to `\(filename)`)*\n")
+                                } else if type == "status", let msg = json["message"] as? String {
+                                    self.appendActivity(.info(message: msg), details: "")
+                                } else if type == "done" {
+                                    self.isProcessing = false
+                                } else if type == "error", let errorMsg = json["message"] as? String {
+                                    self.appendActivity(.error(message: "Agent Error"), details: errorMsg)
+                                    self.isProcessing = false
+                                } else if type == "tool_start", let toolName = json["name"] as? String {
+                                    self.activeToolAction = toolName
+                                    self.activePendingEditCode = ""
+                                } else if type == "tool_stream", let chunk = json["chunk"] as? String {
+                                    self.activePendingEditCode? += chunk
+                                } else if type == "tool_finish" {
+                                    self.activeToolAction = nil
+                                    self.activePendingEditCode = nil
                                 }
                             }
                         }
-                    } catch {}
-                    
-                    if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
-                        if finalDisplayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            chatMessages[lastIndex].text = "I've applied the changes."
-                            appendActivity(.info(message: "Completed"), details: "Agent finished silently.")
-                        } else {
-                            chatMessages[lastIndex].text = finalDisplayText
-                            appendActivity(.info(message: "Completed"), details: "Agent completed the request.")
-                        }
                     }
-                    taskCompleted = true
+                case .data(_):
+                    break
+                @unknown default:
+                    break
                 }
                 
-            } catch {
-                appendActivity(.error(message: "Agent failed"), details: error.localizedDescription)
-                if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
-                    chatMessages[lastIndex].text += "\n⚠️ Error: \(error.localizedDescription)"
+                if isProcessing {
+                    await receiveMessage()
                 }
-                break
+            } catch {
+                await MainActor.run {
+                    self.appendActivity(.error(message: "WebSocket disconnected"), details: error.localizedDescription)
+                    if let lastIndex = self.chatMessages.lastIndex(where: { $0.role == .assistant }) {
+                        self.chatMessages[lastIndex].text += "\n⚠️ Connection to Python backend lost. Is `agent_server.py` running on port 8000?"
+                    }
+                    self.isProcessing = false
+                }
             }
         }
-
-        if currentIteration >= maxIterations && !taskCompleted {
-            appendActivity(.error(message: "Max iterations reached"), details: "The agent stopped after 5 tool loops.")
-            if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
-                chatMessages[lastIndex].text += "\n[Stopped after maximum iterations]"
-            }
-        }
-
+        
+        await receiveMessage()
+        
         if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
             chatMessages[lastIndex].totalWorkTime = Date().timeIntervalSince(startTime)
         }
-
-        isProcessing = false
+        
+        saveHistory()
     }
 
     private func findFileURL(name: String, in items: [WorkspaceFile]) -> URL? {
@@ -368,7 +307,13 @@ final class AgentViewModel: ObservableObject {
                     let filename = String(word.dropFirst())
                     if let url = findFileURL(name: filename, in: projectVM.workspaceItems),
                        let content = try? FileSystemService.shared.readText(from: url) {
-                        let truncated = content.count > 6000 ? String(content.prefix(6000)) + "\n... [Truncated]" : content
+                        let limit = 150000
+                        let truncated: String
+                        if content.count > limit {
+                            truncated = String(content.prefix(limit)) + "\n... [File truncated due to size. Use your tools to read specific lines if needed]"
+                        } else {
+                            truncated = content
+                        }
                         injectedFiles.append("Context from \(filename):\n```\n\(truncated)\n```\n")
                     }
                 }
@@ -396,9 +341,10 @@ final class AgentViewModel: ObservableObject {
     func buildSystemPrompt() -> String {
         let projectDescription = projectViewModel?.projectStructureDescription ?? "No project open."
         let fileNames = projectViewModel?.workspaceItems.map { $0.name }.joined(separator: ", ") ?? "None"
+        let projectSummary = projectViewModel?.projectSummary ?? ""
 
         return """
-        You are Volt, a friendly and helpful AI coding assistant inside Voltaic Velocity, a native macOS IDE.
+        You are Volt, a friendly and helpful AI coding assistant inside Volt Velocity, a native macOS IDE.
 
         CRITICAL RULES:
         1. For normal conversation (greetings, questions, explanations), respond with plain text. Do NOT use any tools.
@@ -406,9 +352,26 @@ final class AgentViewModel: ObservableObject {
         3. You MUST NEVER output raw code blocks (like ```html or ```js) to create or edit files. You MUST use the `create_file` or `edit_file` tools. If you output raw code blocks, the files will not be saved!
         4. When you DO need to use a tool, respond with a brief explanation of what you will do FIRST, then on a new line output the tool call JSON wrapped in <tool_call> tags like: <tool_call>{"name": "create_file", "arguments": {"path": "...", "content": "..."}}</tool_call>
         5. Never output raw JSON without explanation. Always talk to the user like a human.
-        6. If asked to create a website or HTML, make it beautiful with modern CSS, animations, and responsive design. Do NOT write basic beginner-level code. Build advanced, full-fledged projects with headers, footers, beautiful cards, shadows, and modern styling.
-        7. When you successfully complete a task, proactively suggest 2-3 relevant new features or improvements the user could add next to keep iterating!
-        8. If you need to edit an existing file or a linked CSS/JS file, you should read it first if you don't know the contents, then use the `edit_file` tool to update it. Do NOT make the user paste code. Do it yourself.
+        6. Complete Code Only (Zero Placeholders): Never leave any incomplete sections, todo comments, or placeholder text. Always deliver 100% complete, fully functional, production-ready code.
+        7. Single-File Inline Creation (Default): When creating web projects (HTML, CSS, JS), always put everything in a single inline HTML file unless explicitly asked otherwise. No external styles.css or script.js by default. All CSS and JS must be embedded.
+        8. Advanced & Full-Featured Delivery: Build complete, full-fledged, advanced applications with modern UI/UX, smooth animations, responsive design, dark mode, micro-interactions, etc., even if the final code is 1000 to 10,000+ lines long. You are allowed to take time to generate high-quality, comprehensive code. Completeness is priority.
+        9. Internet Search Capability: You can use the tool search_internet(query) whenever you need current information, latest design trends, best practices, or references. Always mention when you are searching the internet and summarize relevant findings before using them.
+        10. When you successfully complete a task, proactively suggest 2-3 relevant new features or improvements the user could add next to keep iterating!
+        11. If you need to edit an existing file or a linked CSS/JS file, you should read it first if you don't know the contents, then use the `edit_file` tool to update it. Do NOT make the user paste code. Do it yourself.
+        12. Maintain a memory file named `VOLT_MEMORY.md` in the root of the project to record key architectural decisions and context. Update this file whenever you make significant architectural changes.
+        13. True Autonomous Agent Mode: Operate like Cursor + Claude Code + Antigravity combined. When the user gives a goal or prompt, take full ownership — plan, explore, reason, edit, test, and complete the task with high intelligence and minimal user input. Be proactive, decisive, and anticipatory.
+        14. Advanced Reasoning Loop: For every task, internally follow: 1) Understand the goal deeply. 2) Explore relevant files & update Project Summary. 3) Create a clear step-by-step plan (show it briefly to user). 4) Execute using tools. 5) Verify (build/test). 6) Refine and improve.
+        15. High Intelligence Standards: Think several steps ahead. Suggest superior approaches when beneficial. Deliver only advanced, production-grade solutions. Maintain strong project-wide understanding at all times.
+        16. Minimal Hand-Holding: Only ask the user for confirmation on major decisions or large changes. Otherwise, drive the task to completion autonomously.
+        17. Full Autonomous Execution: Take complete ownership of tasks. Create a plan, execute it step-by-step, and only ask for confirmation when making large changes or finalizing major features.
+        18. Smart Recovery & Iteration: If something fails (edit, build, tool call), automatically try an alternative method instead of stopping. After major changes, always offer to build and fix any errors.
+        19. Cleaner & More Professional Output: Keep using the transparent Antigravity/Codex style: Thoughts & Analysis -> Plan -> Actions Taken -> Result -> Verification.
+        20. Deep Advanced Skills System (2026-Level Expertise):
+            - Swift & macOS: Use Swift 6+ features, SwiftUI for macOS 15+, @Observable, proper Actor isolation, async/await, TaskGroup, Continuation.
+            - Architecture: Strict MVVM + Repository pattern, Clean Architecture, comprehensive error handling.
+            - UI/UX: Advanced animations (matched geometry, spring), glassmorphism, responsive single-file HTML for web.
+            - General Excellence: Prioritize readability, performance, secure code, and never use deprecated APIs.
+        21. Skills Enforcement Mechanism: Before making any code generation or edit, you MUST output a `<skill_evaluation>` block evaluating: "Is this using the most modern, advanced, and production-grade approach available in 2026?" Upgrade mediocre code to expert level.
 
         EXAMPLE OF A BAD RESPONSE (DO NOT DO THIS):
         I will create the file for you.
@@ -432,7 +395,7 @@ final class AgentViewModel: ObservableObject {
         Available tools:
         - read_file(file_path) — Read the contents of a file
         - create_file(path, content) — Create a new file
-        - edit_file(path, content) — Replace entire file contents
+        - edit_file(path, operation, startLine, endLine, newContent, matchText) — Edit a file. Operations: replace_lines, insert, string_replace, full_replace.
         - replace_in_file(file_path, old_string, new_string) — Replace a specific string in a file
         - delete_file(path) — Delete a file
         - run_terminal(command) — Run a shell command
@@ -443,9 +406,13 @@ final class AgentViewModel: ObservableObject {
         - generate_tests(file_path) — Generate and automatically run unit tests for a specified file
         - analyze_performance(command) — Run performance profiling or time analysis on a command
         - ask_user(question) — Ask the user a clarifying question. Pauses the agent until answered
+        - search_internet(query) — Search the internet for latest info, design trends, or references
 
         Current project:
         \(projectDescription)
+
+        Project Summary:
+        \(projectSummary)
 
         Open files: \(fileNames)
         """
@@ -469,6 +436,7 @@ final class AgentViewModel: ObservableObject {
         } else {
             chatMessages[lastIndex].filesChanged.append(FileChange(name: name, added: added, removed: removed))
         }
+        saveHistory()
     }
 
     func makeToolDefinitions() -> [OKJSONValue] {
@@ -540,7 +508,7 @@ final class AgentViewModel: ObservableObject {
                 "type": .string("function"),
                 "function": .object([
                     "name": .string("edit_file"),
-                    "description": .string("Edit an existing file to update content."),
+                    "description": .string("Edit an existing file to update content. Supports line-based partial replacements, string replacement, or full file replacement."),
                     "parameters": .object([
                         "type": .string("object"),
                         "properties": .object([
@@ -548,12 +516,28 @@ final class AgentViewModel: ObservableObject {
                                 "type": .string("string"),
                                 "description": .string("Relative path inside the project folder."),
                             ]),
-                            "content": .object([
+                            "operation": .object([
                                 "type": .string("string"),
-                                "description": .string("The updated file contents."),
+                                "description": .string("Type of edit: 'replace_lines', 'insert', 'string_replace', or 'full_replace'."),
+                            ]),
+                            "startLine": .object([
+                                "type": .string("integer"),
+                                "description": .string("Starting line number (1-indexed) for replace_lines or insert."),
+                            ]),
+                            "endLine": .object([
+                                "type": .string("integer"),
+                                "description": .string("Ending line number (1-indexed) for replace_lines. Inclusive."),
+                            ]),
+                            "newContent": .object([
+                                "type": .string("string"),
+                                "description": .string("The updated file contents to apply."),
+                            ]),
+                            "matchText": .object([
+                                "type": .string("string"),
+                                "description": .string("The exact text to match for 'string_replace' operation."),
                             ]),
                         ]),
-                        "required": .array([.string("path"), .string("content")])
+                        "required": .array([.string("path"), .string("operation"), .string("newContent")])
                     ])
                 ])
             ],
@@ -708,6 +692,76 @@ final class AgentViewModel: ObservableObject {
                         "required": .array([.string("question")])
                     ])
                 ])
+            ],
+            [
+                "type": .string("function"),
+                "function": .object([
+                    "name": .string("search_internet"),
+                    "description": .string("Search the internet for current information, latest design trends, best practices, or references."),
+                    "parameters": .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "query": .object([
+                                "type": .string("string"),
+                                "description": .string("The search query."),
+                            ]),
+                        ]),
+                        "required": .array([.string("query")])
+                    ])
+                ])
+            ],
+            [
+                "type": .string("function"),
+                "function": .object([
+                    "name": .string("build_project"),
+                    "description": .string("Build the project (detects swift, npm, or xcodebuild automatically)."),
+                    "parameters": .object([
+                        "type": .string("object"),
+                        "properties": .object([:]),
+                        "required": .array([])
+                    ])
+                ])
+            ],
+            [
+                "type": .string("function"),
+                "function": .object([
+                    "name": .string("run_project"),
+                    "description": .string("Run the project (detects swift, npm, etc.)."),
+                    "parameters": .object([
+                        "type": .string("object"),
+                        "properties": .object([:]),
+                        "required": .array([])
+                    ])
+                ])
+            ],
+            [
+                "type": .string("function"),
+                "function": .object([
+                    "name": .string("get_build_errors"),
+                    "description": .string("Get the standard error output from the last build command."),
+                    "parameters": .object([
+                        "type": .string("object"),
+                        "properties": .object([:]),
+                        "required": .array([])
+                    ])
+                ])
+            ],
+            [
+                "type": .string("function"),
+                "function": .object([
+                    "name": .string("create_branch"),
+                    "description": .string("Create a new git branch."),
+                    "parameters": .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "name": .object([
+                                "type": .string("string"),
+                                "description": .string("The name of the new branch.")
+                            ])
+                        ]),
+                        "required": .array([.string("name")])
+                    ])
+                ])
             ]
         ]
         return toolObjects.map { .object($0) }
@@ -763,7 +817,12 @@ final class AgentViewModel: ObservableObject {
             }
             let targetURL = projectURL.appendingPathComponent(path)
             do {
-                let existingText = try FileSystemService.shared.readText(from: targetURL)
+                var existingText = try FileSystemService.shared.readText(from: targetURL)
+                await MainActor.run {
+                    if let openFile = self.editorViewModel?.openFiles.first(where: { $0.url == targetURL }) {
+                        existingText = openFile.text
+                    }
+                }
                 let components = existingText.components(separatedBy: oldString)
                 if components.count - 1 == 0 {
                     return "Error: old_string not found in file."
@@ -771,19 +830,74 @@ final class AgentViewModel: ObservableObject {
                     return "Error: old_string occurs \(components.count - 1) times in the file. It must occur exactly ONCE to prevent global corruption. Please provide a larger, more unique code snippet."
                 }
                 let newText = existingText.replacingOccurrences(of: oldString, with: newString)
-                await processFileAction(type: .edit, relativePath: path, content: newText, baseURL: projectURL)
-                return "Action queued for user review. Do not assume the file is updated until the user approves it."
+                let result = try await processFileAction(type: .edit, relativePath: path, content: newText, baseURL: projectURL)
+                return result
             } catch {
                 return "Error preparing replace_in_file: \(error.localizedDescription)"
             }
             
         case "edit_file":
-            guard let path = args["path"]?.stringValue(), let content = args["content"]?.stringValue() else {
-                appendActivity(.error(message: "edit_file missing arguments"), details: "Missing path or content.")
-                return "Error: Missing path or content."
+            guard let path = args["path"]?.stringValue(), 
+                  let operation = args["operation"]?.stringValue(), 
+                  let newContent = args["newContent"]?.stringValue() else {
+                appendActivity(.error(message: "edit_file missing arguments"), details: "Missing path, operation, or newContent.")
+                return "Error: Missing path, operation, or newContent."
             }
-            await processFileAction(type: .edit, relativePath: path, content: content, baseURL: projectURL)
-            return "Edit action queued for user review."
+            let targetURL = projectURL.appendingPathComponent(path)
+            do {
+                var existingText = try FileSystemService.shared.readText(from: targetURL)
+                await MainActor.run {
+                    if let openFile = self.editorViewModel?.openFiles.first(where: { $0.url == targetURL }) {
+                        existingText = openFile.text
+                    }
+                }
+                var finalText = existingText
+                let lines = existingText.components(separatedBy: .newlines)
+
+                switch operation {
+                case "replace_lines":
+                    if let startLine = args["startLine"]?.intValue(), let endLine = args["endLine"]?.intValue(), startLine > 0, endLine <= lines.count, startLine <= endLine {
+                        var newLines = lines
+                        newLines.removeSubrange((startLine - 1)...(endLine - 1))
+                        let incomingLines = newContent.components(separatedBy: .newlines)
+                        newLines.insert(contentsOf: incomingLines, at: startLine - 1)
+                        finalText = newLines.joined(separator: "\n")
+                    } else {
+                        return "Error: Invalid startLine or endLine for replace_lines."
+                    }
+                case "insert":
+                    if let startLine = args["startLine"]?.intValue(), startLine > 0, startLine <= lines.count + 1 {
+                        var newLines = lines
+                        let incomingLines = newContent.components(separatedBy: .newlines)
+                        newLines.insert(contentsOf: incomingLines, at: startLine - 1)
+                        finalText = newLines.joined(separator: "\n")
+                    } else {
+                        return "Error: Invalid startLine for insert."
+                    }
+                case "string_replace":
+                    if let matchText = args["matchText"]?.stringValue() {
+                        let components = existingText.components(separatedBy: matchText)
+                        if components.count - 1 == 0 {
+                            return "Error: matchText not found in file."
+                        } else if components.count - 1 > 1 {
+                            return "Error: matchText occurs \(components.count - 1) times in the file. Please provide a more unique string."
+                        }
+                        finalText = existingText.replacingOccurrences(of: matchText, with: newContent)
+                    } else {
+                        return "Error: Missing matchText for string_replace."
+                    }
+                case "full_replace":
+                    finalText = newContent
+                default:
+                    return "Error: Unknown operation '\(operation)'."
+                }
+                
+                let result = try await processFileAction(type: .edit, relativePath: path, content: finalText, baseURL: projectURL)
+                return result
+            } catch {
+                appendActivity(.error(message: "Failed to edit file"), details: error.localizedDescription)
+                return "Error editing file: \(error.localizedDescription)"
+            }
 
         case "delete_file":
             guard let path = args["path"]?.stringValue() else {
@@ -799,8 +913,8 @@ final class AgentViewModel: ObservableObject {
                 return "Error: Missing command."
             }
             appendActivity(.ranCommand(command: command), details: "Executing...")
-            await terminalViewModel?.appendOutput("$ \(command)\n")
-            if let output = await terminalViewModel?.execute(command: command) {
+            await terminalManager?.appendOutput("$ \(command)\n")
+            if let output = await terminalManager?.execute(command: command) {
                 return output
             }
             return "Command executed but no output returned."
@@ -831,7 +945,7 @@ final class AgentViewModel: ObservableObject {
                 try diffContent.write(to: tempDiffURL, atomically: true, encoding: .utf8)
                 let command = "patch \(targetURL.path) < \(tempDiffURL.path)"
                 appendActivity(.ranCommand(command: command), details: "Applying diff to \(path)")
-                if let output = await terminalViewModel?.execute(command: command) {
+                if let output = await terminalManager?.execute(command: command) {
                     try? FileManager.default.removeItem(at: tempDiffURL)
                     projectViewModel?.refreshWorkspace()
                     return "Diff applied:\n\(output)"
@@ -845,8 +959,8 @@ final class AgentViewModel: ObservableObject {
             guard let path = args["file_path"]?.stringValue() else { return "Error: Missing file_path." }
             appendActivity(.runningTests(file: path), details: "Generating and running tests for \(path)")
             let command = "xcodebuild test -project VoltaicVelocity.xcodeproj -scheme VoltaicVelocityTests -destination 'platform=macOS'"
-            await terminalViewModel?.appendOutput("$ \(command)\n")
-            if let output = await terminalViewModel?.execute(command: command) {
+            await terminalManager?.appendOutput("$ \(command)\n")
+            if let output = await terminalManager?.execute(command: command) {
                 return output
             }
             return "Test command executed but no output returned."
@@ -855,8 +969,8 @@ final class AgentViewModel: ObservableObject {
             guard let command = args["command"]?.stringValue() else { return "Error: Missing command." }
             appendActivity(.profiling(command: command), details: "Profiling command")
             let timeCommand = "time \(command)"
-            await terminalViewModel?.appendOutput("$ \(timeCommand)\n")
-            if let output = await terminalViewModel?.execute(command: timeCommand) {
+            await terminalManager?.appendOutput("$ \(timeCommand)\n")
+            if let output = await terminalManager?.execute(command: timeCommand) {
                 return output
             }
             return "Profile command executed but no output returned."
@@ -866,13 +980,60 @@ final class AgentViewModel: ObservableObject {
             appendActivity(.askingUser(question: question), details: "Waiting for user input")
             return "User was asked: \(question). The agent should stop and wait for their reply in the chat."
             
+        case "search_internet":
+            guard let query = args["query"]?.stringValue() else { return "Error: Missing query." }
+            appendActivity(.ranCommand(command: "Search Internet"), details: "Searching for: \(query)")
+            
+            // Simple curl via duckduckgo html endpoint to fetch titles/snippets
+            let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            let searchCommand = "curl -s -A 'Mozilla/5.0' 'https://html.duckduckgo.com/html/?q=\(encodedQuery)' | grep -iE 'a class=\"result__snippet' | sed -E 's/<[^>]*>//g' | head -n 5"
+            
+            if let output = await terminalManager?.execute(command: searchCommand) {
+                return "Search Results:\n\(output.isEmpty ? "No useful snippet results found. Try running a curl to a specific URL." : output)"
+            }
+            return "Search command failed."
+            
+        case "build_project":
+            appendActivity(.ranCommand(command: "Build Project"), details: "Building...")
+            let command = "if [ -f Package.swift ]; then swift build; elif [ -f package.json ]; then npm run build; else echo 'Unknown build system'; fi"
+            await terminalManager?.appendOutput("$ Build Project\n")
+            if let output = await terminalManager?.execute(command: command) {
+                return output
+            }
+            return "Build command executed but no output returned."
+            
+        case "run_project":
+            appendActivity(.ranCommand(command: "Run Project"), details: "Running...")
+            let command = "if [ -f Package.swift ]; then swift run; elif [ -f package.json ]; then npm start; else echo 'Unknown run system'; fi"
+            await terminalManager?.appendOutput("$ Run Project\n")
+            if let output = await terminalManager?.execute(command: command) {
+                return output
+            }
+            return "Run command executed but no output returned."
+            
+        case "get_build_errors":
+            appendActivity(.ranCommand(command: "Get Build Errors"), details: "Fetching errors...")
+            let command = "if [ -f Package.swift ]; then swift build 2>&1 >/dev/null; elif [ -f package.json ]; then npm run build 2>&1 >/dev/null; else echo 'Unknown build system'; fi"
+            if let output = await terminalManager?.execute(command: command) {
+                return output
+            }
+            return "No error output returned."
+            
+        case "create_branch":
+            guard let name = args["name"]?.stringValue() else { return "Error: Missing branch name." }
+            appendActivity(.ranCommand(command: "git checkout -b \(name)"), details: "Creating branch...")
+            if let output = await terminalManager?.execute(command: "git checkout -b \(name)") {
+                return output
+            }
+            return "Branch created."
+            
         default:
             appendActivity(.error(message: "Unknown tool call"), details: "Tool '\(name)' is not supported.")
             return "Error: Tool '\(name)' is not supported."
         }
     }
 
-    private func processFileAction(type: PendingFileAction.ActionType, relativePath: String, content: String, baseURL: URL) async {
+    private func processFileAction(type: PendingFileAction.ActionType, relativePath: String, content: String, baseURL: URL) async throws -> String {
         let targetURL = baseURL.appendingPathComponent(relativePath)
         let existingText = try? FileSystemService.shared.readText(from: targetURL)
         let actionName = type == .create ? "Create" : "Edit"
@@ -885,42 +1046,83 @@ final class AgentViewModel: ObservableObject {
             newText: content,
             summary: summary,
             apply: {
-                Task { await self.applyPendingAction() }
+                Task { try? await self.applyPendingAction() }
             }
         )
 
-        if autonomyLevel == .autonomous {
+        let oldLineCount = (existingText ?? "").components(separatedBy: .newlines).count
+        let newLineCount = content.components(separatedBy: .newlines).count
+        let diffSize = type == .create ? newLineCount : abs(newLineCount - oldLineCount) + 20
+        let isLargeChange = diffSize > 50
+
+        if autonomyLevel == .autonomous && !isLargeChange {
             appendActivity(.info(message: summary), details: "Automatically applying action in Autonomous mode.")
-            await applyPendingAction()
+            try await applyPendingAction()
+            return "File successfully updated and verified."
         } else {
-            appendActivity(.info(message: summary), details: "Review or confirm the generated code before applying.")
+            if isLargeChange {
+                appendActivity(.warning(message: "Large change detected"), details: "Change affects >50 lines. Presenting Safety Diff Preview.")
+                self.presentedDiff = self.pendingFileAction
+            } else {
+                appendActivity(.info(message: summary), details: "Review or confirm the generated code before applying.")
+                self.presentedDiff = self.pendingFileAction
+            }
+            return "Action queued for user review. Do not assume the file is updated until the user approves it."
         }
     }
 
-    private func applyPendingAction() async {
+    func cancelPendingDiff() {
+        presentedDiff = nil
+        pendingFileAction = nil
+        appendActivity(.info(message: "Edit Cancelled"), details: "User cancelled the pending diff.")
+    }
+
+    func requestDiffModification() {
+        presentedDiff = nil
+        pendingFileAction = nil
+        let assistantMsg = ChatMessage(role: .assistant, text: "I have cancelled the pending diff. Please specify how you would like me to modify it.")
+        chatMessages.append(assistantMsg)
+    }
+
+    func applyPresentedDiff() {
+        presentedDiff = nil
+        Task { try? await applyPendingAction() }
+    }
+
+    private func applyPendingAction() async throws {
         guard let pending = pendingFileAction else { return }
         do {
-            switch pending.type {
-            case .create:
+            if pending.type == .create {
                 let directory = pending.fileURL.deletingLastPathComponent()
                 try FileSystemService.shared.createFolderIfNeeded(at: directory)
-                try FileSystemService.shared.writeText(pending.newText, to: pending.fileURL)
-                projectViewModel?.refreshWorkspace()
-                editorViewModel?.openFile(at: pending.fileURL)
-                appendActivity(.created(file: pending.fileURL.lastPathComponent))
-                
-                Task { await coordinator.runQA(fileChanged: pending.fileURL.lastPathComponent) }
-                
-            case .edit:
-                try FileSystemService.shared.writeText(pending.newText, to: pending.fileURL)
-                projectViewModel?.refreshWorkspace()
-                editorViewModel?.openFile(at: pending.fileURL)
-                appendActivity(.editing(file: pending.fileURL.lastPathComponent, added: 0, removed: 0))
-                
-                Task { await coordinator.runQA(fileChanged: pending.fileURL.lastPathComponent) }
             }
+            try FileSystemService.shared.writeText(pending.newText, to: pending.fileURL)
+            
+            // VERIFICATION
+            let verificationText = try FileSystemService.shared.readText(from: pending.fileURL)
+            if verificationText != pending.newText {
+                appendActivity(.error(message: "File verification failed"), details: "The written file content does not match the requested content!")
+                throw NSError(domain: "AgentViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "File verification mismatch."])
+            }
+            
+            projectViewModel?.refreshWorkspace()
+            
+            await MainActor.run {
+                editorViewModel?.openFile(at: pending.fileURL)
+                editorViewModel?.reloadText(for: pending.fileURL)
+            }
+            
+            if pending.type == .create {
+                appendActivity(.created(file: pending.fileURL.lastPathComponent))
+            } else {
+                appendActivity(.editing(file: pending.fileURL.lastPathComponent, added: 0, removed: 0))
+            }
+            
+            Task { await coordinator.runQA(fileChanged: pending.fileURL.lastPathComponent) }
         } catch {
             appendActivity(.error(message: "File action failed"), details: error.localizedDescription)
+            pendingFileAction = nil
+            throw error
         }
         pendingFileAction = nil
     }
@@ -938,8 +1140,8 @@ final class AgentViewModel: ObservableObject {
 
     private func runTerminalCommand(_ command: String) async {
         appendActivity(.ranCommand(command: command), details: "Executing...")
-        await terminalViewModel?.appendOutput("$ \(command)\n")
-        _ = await terminalViewModel?.execute(command: command)
+        await terminalManager?.appendOutput("$ \(command)\n")
+        _ = await terminalManager?.execute(command: command)
     }
 
     private func performGitStatus(baseURL: URL) async {

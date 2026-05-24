@@ -19,6 +19,11 @@ struct SettingsView: View {
     @AppStorage("editorTabSize") private var editorTabSize = 4
     @AppStorage("editorShowLineNumbers") private var editorShowLineNumbers = true
     @AppStorage("editorWordWrap") private var editorWordWrap = false
+    @AppStorage("agentFullAccess") private var agentFullAccess = false
+    @AppStorage("autoOpenEditedFiles") private var autoOpenEditedFiles = true
+    @AppStorage("enableShellIntegration") private var enableShellIntegration = true
+    @AppStorage("agentAutoFixLints") private var agentAutoFixLints = false
+    @AppStorage("explainAndFixInCurrentConversation") private var explainAndFixInCurrentConversation = true
 
     var body: some View {
         TabView {
@@ -26,13 +31,16 @@ struct SettingsView: View {
                 .tabItem { Label("Appearance", systemImage: "paintpalette") }
 
             ollamaSettings
-                .tabItem { Label("AI / Ollama", systemImage: "cpu") }
+                .tabItem { Label("AI Engine", systemImage: "cpu") }
 
             editorSettings
                 .tabItem { Label("Editor", systemImage: "doc.text") }
 
             terminalSettings
                 .tabItem { Label("Terminal", systemImage: "terminal") }
+
+            agentSettings
+                .tabItem { Label("Agent", systemImage: "sparkles") }
 
             generalSettings
                 .tabItem { Label("General", systemImage: "gearshape") }
@@ -113,10 +121,73 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: — AI / Ollama
+    // MARK: — AI Engine
+    @AppStorage("activeModels") private var activeModelsString = "qwen2.5-coder"
+    @AppStorage("useMLXEngine") private var useMLXEngine = false
+    @AppStorage("isMultiAgentEnabled") private var isMultiAgentEnabled = true
+    @AppStorage("autonomyLevel") private var autonomyLevel = "Fully Autonomous"
+    
+    @State private var availableModels: [String] = []
+    @State private var isFetchingModels = false
+    
+    private var activeModelsList: [String] {
+        activeModelsString.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+    
+    private func toggleModel(_ model: String) {
+        var list = activeModelsList
+        if list.contains(model) {
+            list.removeAll { $0 == model }
+        } else {
+            list.append(model)
+        }
+        activeModelsString = list.joined(separator: ", ")
+    }
+    
+    private func fetchModels() {
+        guard !isFetchingModels else { return }
+        isFetchingModels = true
+        Task {
+            do {
+                let fetchedModels: [String]
+                if useMLXEngine {
+                    fetchedModels = try await MLXService().fetchModels()
+                } else {
+                    fetchedModels = try await OllamaService().fetchModels()
+                }
+                await MainActor.run { self.availableModels = fetchedModels }
+            } catch {
+                print("Failed to fetch models: \(error)")
+            }
+            await MainActor.run { self.isFetchingModels = false }
+        }
+    }
+    
     private var ollamaSettings: some View {
         Form {
-            Section("Connection") {
+            Section("Inference Engine") {
+                Toggle("Use Built-in MLX Engine", isOn: $useMLXEngine)
+                if useMLXEngine {
+                    Text("Using native Apple Silicon MLX inference (downloads Qwen2.5-Coder directly).")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Using external Ollama instance (localhost:11434).")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Divider()
+                
+                Toggle("Enable Multi-Agent Team", isOn: $isMultiAgentEnabled)
+                Picker("Autonomy Level", selection: $autonomyLevel) {
+                    Text("Fully Autonomous").tag("Fully Autonomous")
+                    Text("Manual Approval").tag("Manual Approval")
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Section("Connection (Ollama Only)") {
                 HStack {
                     Text("Base URL")
                     Spacer()
@@ -134,10 +205,60 @@ struct SettingsView: View {
                         .font(.system(size: 12, design: .monospaced))
                         .frame(width: 260)
                 }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Active Models")
+                        Spacer()
+                        if isFetchingModels {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Button(action: fetchModels) {
+                                Image(systemName: "arrow.clockwise")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    
+                    if availableModels.isEmpty && !isFetchingModels {
+                        Text("No models found").foregroundColor(.secondary).font(.caption)
+                    } else {
+                        ScrollView(.vertical, showsIndicators: true) {
+                            VStack(spacing: 2) {
+                                ForEach(availableModels, id: \.self) { model in
+                                    Toggle(isOn: Binding(
+                                        get: { activeModelsList.contains(model) },
+                                        set: { _ in toggleModel(model) }
+                                    )) {
+                                        Text(model)
+                                            .font(.system(size: 13, design: .monospaced))
+                                    }
+                                    .padding(.vertical, 4)
+                                    .padding(.horizontal, 8)
+                                    .background(activeModelsList.contains(model) ? Color.accentColor.opacity(0.1) : Color.clear)
+                                    .cornerRadius(6)
+                                }
+                            }
+                        }
+                        .frame(height: 120)
+                        .padding(6)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.2), lineWidth: 1))
+                    }
+                }
+            }
+            .onAppear {
+                fetchModels()
+            }
+            .onChange(of: useMLXEngine) {
+                fetchModels()
             }
 
             Section("Info") {
-                Text("Models are fetched dynamically from your local Ollama instance on startup. To install a model, run:")
+                Text(useMLXEngine ? "Models are auto-downloaded on first launch for MLX Engine." : "Models are fetched dynamically from your local Ollama instance on startup. To install a model, run:")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                 Text("ollama pull <model-name>")
@@ -204,6 +325,44 @@ struct SettingsView: View {
         .padding()
     }
 
+    // MARK: — Agent
+    private var agentSettings: some View {
+        Form {
+            Section("Permissions & Access") {
+                Toggle("Full access", isOn: $agentFullAccess)
+                Text("Agents have full access to your machine and external resources.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Section("File & Terminal Behavior") {
+                Toggle("Auto-Open Edited Files", isOn: $autoOpenEditedFiles)
+                Text("Open files in the background if Agent creates or edits them")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Toggle("Enable Shell Integration", isOn: $enableShellIntegration)
+                Text("When enabled, Agent will use IDE's shell integration to detect and report terminal command execution.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Section("Linting & Fixing") {
+                Toggle("Agent Auto-Fix Lints", isOn: $agentAutoFixLints)
+                Text("When enabled, Agent is given awareness of lint errors created by its edits and may fix them without explicit user prompting.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Toggle("Explain and Fix in Current Conversation", isOn: $explainAndFixInCurrentConversation)
+                Text("When enabled, 'Explain and Fix' actions will continue in the current conversation instead of starting a new one.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+    }
+
     // MARK: — General
     private var generalSettings: some View {
         Form {
@@ -215,7 +374,7 @@ struct SettingsView: View {
             Section("About") {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Voltaic Velocity")
+                        Text("Volt Velocity")
                             .font(.system(size: 14, weight: .semibold))
                         Text("AI-Powered Native macOS IDE")
                             .font(.system(size: 12))

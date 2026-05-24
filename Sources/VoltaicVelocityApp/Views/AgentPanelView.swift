@@ -4,9 +4,10 @@ struct AgentPanelView: View {
     @ObservedObject var agentViewModel: AgentViewModel
     @ObservedObject var projectViewModel: ProjectViewModel
     @ObservedObject var editorViewModel: EditorViewModel
-    @ObservedObject var terminalViewModel: TerminalViewModel
+    @ObservedObject var terminalManager: TerminalManagerViewModel
 
     @State private var showingMentions = false
+    @State private var showingHistory = false
     @State private var mentionQuery = ""
     @State private var filteredFiles: [WorkspaceFile] = []
 
@@ -42,6 +43,18 @@ struct AgentPanelView: View {
                 .buttonStyle(.plain)
                 .help("New Chat")
                 .padding(.leading, 8)
+                
+                Button(action: { showingHistory.toggle() }) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.plain)
+                .help("Chat History")
+                .padding(.leading, 8)
+                .popover(isPresented: $showingHistory, arrowEdge: .bottom) {
+                    ChatHistoryView(agentViewModel: agentViewModel)
+                        .frame(width: 300, height: 400)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -67,6 +80,42 @@ struct AgentPanelView: View {
                         if agentViewModel.isProcessing {
                             typingIndicator
                         }
+                        
+                        // Live File Edit Monitor
+                        if let toolName = agentViewModel.activeToolAction, let code = agentViewModel.activePendingEditCode {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Image(systemName: "terminal")
+                                    Text("Agentic Monitor: \(toolName)")
+                                        .font(.system(size: 11, weight: .bold))
+                                    Spacer()
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                .foregroundColor(.cyan)
+                                .padding(.horizontal, 12)
+                                .padding(.top, 8)
+                                
+                                ScrollView(.vertical, showsIndicators: false) {
+                                    Text(code)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundColor(Color(red: 0.85, green: 0.87, blue: 0.90))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(12)
+                                }
+                                .frame(maxHeight: 200)
+                            }
+                            .background(Color(red: 0.08, green: 0.08, blue: 0.10))
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.cyan.opacity(0.3), lineWidth: 1)
+                            )
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .transition(.opacity.combined(with: .scale))
+                            .id("live-monitor")
+                        }
 
                         // Scroll anchor
                         Color.clear
@@ -86,6 +135,11 @@ struct AgentPanelView: View {
                     }
                 }
                 .onChange(of: agentViewModel.chatMessages.last?.activities.count) { _, _ in
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo("chat-bottom", anchor: .bottom)
+                    }
+                }
+                .onChange(of: agentViewModel.activePendingEditCode) { _, _ in
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo("chat-bottom", anchor: .bottom)
                     }
@@ -135,23 +189,7 @@ struct AgentPanelView: View {
                             .menuStyle(.borderlessButton)
                             .fixedSize()
                         }
-                        
                         Spacer()
-                        
-                        Picker("", selection: $agentViewModel.autonomyLevel) {
-                            ForEach(AutonomyLevel.allCases, id: \.self) { level in
-                                Text(level.rawValue).tag(level)
-                            }
-                        }
-                        .labelsHidden()
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
-                        .font(.system(size: 11))
-                        
-                        Toggle("Multi-Agent Team", isOn: $agentViewModel.isMultiAgentEnabled)
-                            .toggleStyle(.switch)
-                            .controlSize(.mini)
-                            .font(.system(size: 11))
                     }
                     .padding(.horizontal, 14)
                     .padding(.top, 10)
@@ -421,6 +459,11 @@ struct AgentPanelView: View {
 private struct PendingActionReviewView: View {
     let action: PendingFileAction
     @ObservedObject var agentViewModel: AgentViewModel
+    
+    @State private var diffLines: [DiffLine] = []
+    
+    private var addedCount: Int { diffLines.filter { $0.type == .added }.count }
+    private var removedCount: Int { diffLines.filter { $0.type == .removed }.count }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -430,11 +473,11 @@ private struct PendingActionReviewView: View {
                     .foregroundColor(.orange)
                     .font(.system(size: 12))
                 
-                // Mock line changes (since we don't have exact diff chunks calculated)
+                // Actual line changes
                 HStack(spacing: 4) {
-                    Text("+4")
+                    Text("+\(addedCount)")
                         .foregroundColor(Color.green.opacity(0.9))
-                    Text("-1")
+                    Text("-\(removedCount)")
                         .foregroundColor(Color.red.opacity(0.9))
                 }
                 .font(.system(size: 11, design: .monospaced))
@@ -450,6 +493,36 @@ private struct PendingActionReviewView: View {
             
             Divider()
                 .background(Color.white.opacity(0.05))
+                
+            // Diff Content Viewer
+            if !diffLines.isEmpty {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(diffLines) { line in
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(line.type == .added ? "+" : (line.type == .removed ? "-" : " "))
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(lineColor(for: line.type))
+                                    .frame(width: 14, alignment: .center)
+                                
+                                Text(line.content.isEmpty ? " " : line.content)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(lineColor(for: line.type))
+                                    .lineLimit(nil)
+                                
+                                Spacer()
+                            }
+                            .padding(.vertical, 2)
+                            .background(lineBackgroundColor(for: line.type))
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+                .frame(maxHeight: 200)
+                
+                Divider()
+                    .background(Color.white.opacity(0.05))
+            }
             
             // Bottom portion: Action bar
             HStack {
@@ -500,5 +573,68 @@ private struct PendingActionReviewView: View {
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+        .onAppear {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let computed = AgentDiffUtility.computeDiff(oldText: action.existingText, newText: action.newText)
+                DispatchQueue.main.async {
+                    self.diffLines = computed
+                }
+            }
+        }
+    }
+    
+    private func lineColor(for type: DiffLine.DiffType) -> Color {
+        switch type {
+        case .added: return .green
+        case .removed: return .red
+        case .unchanged: return .secondary
+        }
+    }
+    
+    private func lineBackgroundColor(for type: DiffLine.DiffType) -> Color {
+        switch type {
+        case .added: return Color.green.opacity(0.1)
+        case .removed: return Color.red.opacity(0.1)
+        case .unchanged: return Color.clear
+        }
+    }
+}
+
+struct ChatHistoryView: View {
+    @ObservedObject var agentViewModel: AgentViewModel
+    @State private var sessions: [(id: UUID, date: Date, title: String)] = []
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Chat History")
+                .font(.headline)
+                .padding()
+            
+            Divider()
+            
+            List(sessions, id: \.id) { session in
+                Button(action: {
+                    agentViewModel.loadHistory(id: session.id)
+                }) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(session.title)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        
+                        Text(session.date, style: .date)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .listStyle(.plain)
+        }
+        .onAppear {
+            sessions = agentViewModel.getAllChatSessions()
+        }
     }
 }

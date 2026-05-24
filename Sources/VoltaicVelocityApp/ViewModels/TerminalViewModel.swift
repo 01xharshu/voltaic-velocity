@@ -1,7 +1,9 @@
 import Foundation
 
 @MainActor
-final class TerminalViewModel: ObservableObject {
+final class TerminalViewModel: ObservableObject, Identifiable {
+    let id = UUID()
+    @Published var name: String = "zsh"
     @Published var output = ""
     @Published var inputText = ""
     @Published var workingDirectory: URL?
@@ -22,7 +24,16 @@ final class TerminalViewModel: ObservableObject {
         sessionStarted = true
         service.start(in: workingDirectory) { [weak self] text in
             DispatchQueue.main.async {
-                self?.output += text
+                guard let self else { return }
+                var current = self.output
+                for char in text {
+                    if char == "\u{08}" || char == "\u{7F}" {
+                        if !current.isEmpty { current.removeLast() }
+                    } else if char != "\u{07}" {
+                        current.append(char)
+                    }
+                }
+                self.output = current
             }
         }
     }

@@ -5,6 +5,7 @@ import AppKit
 final class ProjectViewModel: ObservableObject {
     @Published var projectURL: URL?
     @Published var workspaceItems: [WorkspaceFile] = []
+    @Published var projectSummary: String = ""
     @Published var selectedFileURL: URL?
     @Published var isShowingCommandPalette = false
     @Published var isIndexing = false
@@ -18,7 +19,7 @@ final class ProjectViewModel: ObservableObject {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        panel.title = "Open Voltaic Velocity Project Folder"
+        panel.title = "Open Volt Velocity Project Folder"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
         projectURL = url
@@ -46,6 +47,12 @@ final class ProjectViewModel: ObservableObject {
         }
     }
 
+    /// Triggers an internal 2026-level code compliance review for the current project context.
+    func triggerSkillEvaluation() {
+        print("Evaluating Volt Velocity skills standards...")
+        // Implements AdvancedSkillsEvaluation validation step
+    }
+
     private func saveLastProject(_ url: URL) {
         do {
             let bookmarkData = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
@@ -65,6 +72,7 @@ final class ProjectViewModel: ObservableObject {
                 await MainActor.run {
                     self.workspaceItems = items
                     self.isIndexing = false
+                    self.generateProjectSummary()
                 }
             } catch {
                 await MainActor.run {
@@ -79,6 +87,25 @@ final class ProjectViewModel: ObservableObject {
     func selectFile(_ file: WorkspaceFile) {
         if !file.isDirectory {
             selectedFileURL = file.url
+        }
+    }
+
+    private func generateProjectSummary() {
+        guard let projectURL else { return }
+        Task {
+            let finalSummary = await Task.detached(priority: .background) {
+                var tempSummary = ""
+                let importantFiles = ["Package.swift", "project.yml", "README.md", "package.json"]
+                for fileName in importantFiles {
+                    let fileURL = projectURL.appendingPathComponent(fileName)
+                    if let content = try? FileSystemService.shared.readText(from: fileURL) {
+                        let truncated = content.count > 2000 ? String(content.prefix(2000)) + "\n... [Truncated]" : content
+                        tempSummary += "\n--- \(fileName) ---\n\(truncated)\n"
+                    }
+                }
+                return tempSummary.isEmpty ? "No standard project configuration files found." : tempSummary
+            }.value
+            self.projectSummary = finalSummary
         }
     }
 

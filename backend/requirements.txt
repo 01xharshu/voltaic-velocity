@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+websockets
+watchdog
+requests
+httpx
+pydantic
+litellm
+aiofiles

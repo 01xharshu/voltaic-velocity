@@ -146,43 +146,120 @@ struct TerminalNSViewRepresentable: NSViewRepresentable {
 
 // MARK: — SwiftUI Terminal View
 struct TerminalView: View {
-    @ObservedObject var terminalViewModel: TerminalViewModel
+    @ObservedObject var terminalManager: TerminalManagerViewModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack(spacing: 0) {
-                Label("TERMINAL", systemImage: "terminal.fill")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+        HStack(spacing: 0) {
+            // MAIN TERMINAL AREA
+            VStack(spacing: 0) {
+                // Header
+                HStack(spacing: 0) {
+                    Label("TERMINAL", systemImage: "terminal.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
 
-                Spacer()
+                    Spacer()
 
-                if let folder = terminalViewModel.workingDirectory {
-                    Text(folder.lastPathComponent)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.4))
-                        .padding(.trailing, 8)
+                    if let activeTerminal = terminalManager.activeTerminal,
+                       let folder = activeTerminal.workingDirectory {
+                        Text(folder.lastPathComponent)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.4))
+                            .padding(.trailing, 8)
+                    }
+
+                    Button {
+                        terminalManager.activeTerminal?.clearOutput()
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear terminal")
+                    .padding(.trailing, 12)
                 }
+                .background(Color(red: 0.10, green: 0.10, blue: 0.12))
 
-                Button(action: terminalViewModel.clearOutput) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 11))
+                // Inline terminal
+                if let activeTerminal = terminalManager.activeTerminal {
+                    TerminalNSViewRepresentable(viewModel: activeTerminal)
+                        .id(activeTerminal.id) // Force recreation if terminal switches
+                } else {
+                    Spacer()
+                    Text("No Active Terminals")
+                        .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.4))
+                    Spacer()
                 }
-                .buttonStyle(.plain)
-                .help("Clear terminal")
-                .padding(.trailing, 12)
             }
+            
+            // SIDEBAR
+            VStack(spacing: 0) {
+                // Sidebar Header
+                HStack {
+                    Text("INSTANCES")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                    Spacer()
+                    Button {
+                        terminalManager.createTerminal()
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                    .help("New Terminal")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color(red: 0.08, green: 0.08, blue: 0.10))
+                
+                Divider().background(Color.white.opacity(0.1))
+                
+                // Terminal List
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(terminalManager.terminals) { terminal in
+                            HStack {
+                                Label(terminal.name, systemImage: "chevron.right.square")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(terminalManager.activeTerminalId == terminal.id ? .white : .white.opacity(0.6))
+                                
+                                Spacer()
+                                
+                                // Hover trash can (always visible for now)
+                                Button {
+                                    terminalManager.removeTerminal(id: terminal.id)
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.white.opacity(0.4))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(terminalManager.activeTerminalId == terminal.id ? Color.white.opacity(0.1) : Color.clear)
+                            .cornerRadius(4)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                terminalManager.selectTerminal(id: terminal.id)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 4)
+                }
+            }
+            .frame(width: 150)
             .background(Color(red: 0.10, green: 0.10, blue: 0.12))
-
-            // Inline terminal — click and type directly
-            TerminalNSViewRepresentable(viewModel: terminalViewModel)
-        }
-        .onAppear {
-            terminalViewModel.startSessionIfNeeded()
+            
+            Divider()
+                .background(Color.white.opacity(0.1))
         }
     }
 }

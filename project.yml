@@ -15,6 +15,12 @@ packages:
   OllamaKit:
     url: https://github.com/kevinhermawan/OllamaKit.git
     exactVersion: 5.0.5
+  MLX:
+    url: https://github.com/ml-explore/mlx-swift.git
+    from: 0.20.0
+  MLXLM:
+    url: https://github.com/ml-explore/mlx-swift-lm.git
+    branch: main
 
 targets:
   VoltaicVelocity:
@@ -34,6 +40,18 @@ targets:
         product: CodeEditorView
       - package: OllamaKit
         product: OllamaKit
+      - package: MLX
+        product: MLX
+      - package: MLX
+        product: MLXRandom
+      - package: MLX
+        product: MLXNN
+      - package: MLX
+        product: MLXOptimizers
+      - package: MLX
+        product: MLXFFT
+      - package: MLXLM
+        product: MLXLLM
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.voltaicvelocity.app

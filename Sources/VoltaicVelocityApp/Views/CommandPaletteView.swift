@@ -5,7 +5,7 @@ struct CommandPaletteView: View {
     @ObservedObject var agentViewModel: AgentViewModel
     @ObservedObject var projectViewModel: ProjectViewModel
     @ObservedObject var editorViewModel: EditorViewModel
-    @ObservedObject var terminalViewModel: TerminalViewModel
+    @ObservedObject var terminalManager: TerminalManagerViewModel
     @ObservedObject var gitViewModel: GitViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
@@ -77,7 +77,9 @@ struct CommandPaletteView: View {
                 presentCommitAlert()
             },
             PaletteCommand(title: "Run Terminal Command", subtitle: "Enter a shell command directly in the terminal.") {
-                terminalViewModel.inputText = ""
+                terminalManager.activeTerminal?.inputText = ""
+                terminalManager.activeTerminal?.runCurrentCommand()
+                dismiss()
             }
         ]
         guard !query.isEmpty else { return commands }

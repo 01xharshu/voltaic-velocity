@@ -12,6 +12,15 @@ extension OKJSONValue {
         }
     }
 
+    func intValue() -> Int? {
+        switch self {
+        case .integer(let value): return value
+        case .number(let value): return Int(value)
+        case .string(let value): return Int(value)
+        default: return nil
+        }
+    }
+
     func objectValue() -> [String: OKJSONValue]? {
         guard case let .object(object) = self else { return nil }
         return object

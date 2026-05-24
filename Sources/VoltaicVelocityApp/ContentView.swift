@@ -4,7 +4,7 @@ import CodeEditorView
 struct ContentView: View {
     @ObservedObject var projectViewModel: ProjectViewModel
     @ObservedObject var editorViewModel: EditorViewModel
-    @ObservedObject var terminalViewModel: TerminalViewModel
+    @ObservedObject var terminalManager: TerminalManagerViewModel
     @ObservedObject var gitViewModel: GitViewModel
     @ObservedObject var agentViewModel: AgentViewModel
     @ObservedObject var liveServerViewModel: LiveServerViewModel
@@ -44,15 +44,15 @@ struct ContentView: View {
 
                     Divider()
 
-                    TerminalView(terminalViewModel: terminalViewModel)
-                        .frame(minHeight: 180)
+                    TerminalView(terminalManager: terminalManager)
+                        .frame(minHeight: 150)
                 }
             } detail: {
                 AgentPanelView(
                     agentViewModel: agentViewModel,
                     projectViewModel: projectViewModel,
                     editorViewModel: editorViewModel,
-                    terminalViewModel: terminalViewModel
+                    terminalManager: terminalManager
                 )
             }
             .toolbar {
@@ -77,19 +77,33 @@ struct ContentView: View {
                 CommandPaletteView(agentViewModel: agentViewModel,
                                    projectViewModel: projectViewModel,
                                    editorViewModel: editorViewModel,
-                                   terminalViewModel: terminalViewModel,
+                                   terminalManager: terminalManager,
                                    gitViewModel: gitViewModel)
             }
             .sheet(isPresented: $gitViewModel.isShowingDiffPreview) {
                 DiffPreviewView(title: gitViewModel.diffTitle, diffText: gitViewModel.diffText)
             }
+            .sheet(item: $agentViewModel.presentedDiff) { pendingAction in
+                SafetyDiffPreviewView(
+                    pendingAction: pendingAction,
+                    onApply: {
+                        agentViewModel.applyPresentedDiff()
+                    },
+                    onModify: {
+                        agentViewModel.requestDiffModification()
+                    },
+                    onCancel: {
+                        agentViewModel.cancelPendingDiff()
+                    }
+                )
+            }
             .environment(\.codeEditorTheme, colorScheme == .dark ? Theme.defaultDark : Theme.defaultLight)
             .onAppear {
                 projectViewModel.restoreLastProject()
-                terminalViewModel.restoreWorkingDirectory(from: projectViewModel.projectURL)
+                terminalManager.restoreWorkingDirectory(from: projectViewModel.projectURL)
                 agentViewModel.link(projectViewModel: projectViewModel,
                                     editorViewModel: editorViewModel,
-                                    terminalViewModel: terminalViewModel)
+                                    terminalManager: terminalManager)
                 Task {
                     await gitViewModel.refreshRepositoryStatus(projectURL: projectViewModel.projectURL)
                 }
@@ -97,7 +111,7 @@ struct ContentView: View {
             .onChange(of: projectViewModel.projectURL) { _, projectURL in
                 Task {
                     await gitViewModel.refreshRepositoryStatus(projectURL: projectURL)
-                    terminalViewModel.restoreWorkingDirectory(from: projectURL)
+                    terminalManager.restoreWorkingDirectory(from: projectURL)
                 }
             }
             
@@ -138,7 +152,7 @@ struct ContentView_Previews: PreviewProvider {
         ContentView(
             projectViewModel: ProjectViewModel(),
             editorViewModel: EditorViewModel(),
-            terminalViewModel: TerminalViewModel(),
+            terminalManager: TerminalManagerViewModel(),
             gitViewModel: GitViewModel(),
             agentViewModel: AgentViewModel(),
             liveServerViewModel: LiveServerViewModel()

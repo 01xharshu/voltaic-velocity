@@ -2,8 +2,7 @@ import Foundation
 
 final class TerminalService {
     private var process: Process?
-    private var inputPipe: Pipe?
-    private var outputPipe: Pipe?
+    private var masterHandle: FileHandle?
     private var onOutput: ((String) -> Void)?
     private let outputQueue = DispatchQueue(label: "terminal.output")
 
@@ -13,6 +12,15 @@ final class TerminalService {
 
     func start(in directory: URL?, onOutput: @escaping (String) -> Void) {
         self.onOutput = onOutput
+
+        let masterFD = posix_openpt(O_RDWR | O_NOCTTY)
+        grantpt(masterFD)
+        unlockpt(masterFD)
+        let slaveName = String(cString: ptsname(masterFD))
+        let slaveFD = open(slaveName, O_RDWR | O_NOCTTY)
+
+        let masterFileHandle = FileHandle(fileDescriptor: masterFD, closeOnDealloc: true)
+        let slaveFileHandle = FileHandle(fileDescriptor: slaveFD, closeOnDealloc: true)
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -24,31 +32,18 @@ final class TerminalService {
 
         // Set up environment for interactive use
         var env = ProcessInfo.processInfo.environment
-        env["TERM"] = "xterm-256color"
+        env["TERM"] = "dumb"
         env["CLICOLOR"] = "1"
         env["LANG"] = "en_US.UTF-8"
+        env["DISABLE_BRACKETED_PASTE"] = "true"
         proc.environment = env
 
-        let inPipe = Pipe()
-        let outPipe = Pipe()
-        let errPipe = Pipe()
+        proc.standardInput = slaveFileHandle
+        proc.standardOutput = slaveFileHandle
+        proc.standardError = slaveFileHandle
 
-        proc.standardInput = inPipe
-        proc.standardOutput = outPipe
-        proc.standardError = errPipe
-
-        // Read stdout asynchronously
-        outPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            let cleanText = text.strippingANSI()
-            self?.outputQueue.async {
-                self?.onOutput?(cleanText)
-            }
-        }
-
-        // Read stderr asynchronously
-        errPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+        // Read from the master side asynchronously
+        masterFileHandle.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
             let cleanText = text.strippingANSI()
@@ -65,34 +60,34 @@ final class TerminalService {
 
         do {
             try proc.run()
+            close(slaveFD) // Close the slave in the parent process
             process = proc
-            inputPipe = inPipe
-            outputPipe = outPipe
+            masterHandle = masterFileHandle
         } catch {
             onOutput("[Failed to start shell: \(error.localizedDescription)]\n")
         }
     }
 
     func send(command: String) {
-        guard let inputPipe, process?.isRunning == true else { return }
-        let data = (command + "\n").data(using: .utf8)!
-        inputPipe.fileHandleForWriting.write(data)
+        guard let masterHandle, process?.isRunning == true else { return }
+        if let data = (command + "\n").data(using: .utf8) {
+            masterHandle.write(data)
+        }
     }
 
     /// Send raw characters (no trailing newline) — used for real-time keystroke forwarding
     func send(raw chars: String) {
-        guard let inputPipe, process?.isRunning == true else { return }
+        guard let masterHandle, process?.isRunning == true else { return }
         if let data = chars.data(using: .utf8) {
-            inputPipe.fileHandleForWriting.write(data)
+            masterHandle.write(data)
         }
     }
 
     func stop() {
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        masterHandle?.readabilityHandler = nil
         process?.terminate()
         process = nil
-        inputPipe = nil
-        outputPipe = nil
+        masterHandle = nil
         onOutput = nil
     }
 
@@ -136,6 +131,7 @@ enum TerminalError: LocalizedError {
 
 fileprivate extension String {
     func strippingANSI() -> String {
-        return self.replacingOccurrences(of: "\u{1B}\\[[0-9;]*[a-zA-Z]", with: "", options: .regularExpression)
+        // Broadened regex to catch [?2004h and others
+        return self.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
     }
 }

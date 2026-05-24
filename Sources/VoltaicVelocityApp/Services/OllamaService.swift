@@ -48,13 +48,13 @@ public struct StreamChatResponse: Decodable {
     public let done: Bool
 }
 
-actor OllamaService {
+actor OllamaService: AIServiceProtocol {
     private let client = OllamaKit()
 
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300 // 5 minutes timeout
-        config.timeoutIntervalForResource = 300
+        config.timeoutIntervalForRequest = 86400 // 24 hours timeout
+        config.timeoutIntervalForResource = 86400
         return URLSession(configuration: config)
     }()
 
@@ -70,12 +70,12 @@ actor OllamaService {
                     var request = URLRequest(url: url)
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    request.timeoutInterval = 300 // Explicitly set timeout on the request object itself
+                    request.timeoutInterval = 86400 // 24 hours timeout
                     var requestDict = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(requestData)) as? [String: Any] ?? [:]
                     requestDict["stream"] = true
                     
-                    // Increase context window so the agent can handle large files (e.g. 1000s of lines)
-                    requestDict["options"] = ["num_ctx": 32768]
+                    // Increase context window to handle large context lengths (128k supported by Qwen2.5)
+                    requestDict["options"] = ["num_ctx": 131072]
                     
                     request.httpBody = try JSONSerialization.data(withJSONObject: requestDict)
                     

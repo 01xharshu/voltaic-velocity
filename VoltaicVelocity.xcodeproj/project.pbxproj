@@ -12,30 +12,43 @@
 		0C98DBA1CF34E1C47A03E39F /* GitViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F149105EDC668641C303F0BC /* GitViewModel.swift */; };
 		0F2CC99CF1EB9DB52A80E500 /* FeedbackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E9500BDA6F7129BE60E140E /* FeedbackService.swift */; };
 		17163449ED6F7CD4D9A5C4F3 /* LiveServerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D4067072D456A4C242773B /* LiveServerViewModel.swift */; };
+		1A658F82A61B4BEA6439186D /* MLXFFT in Frameworks */ = {isa = PBXBuildFile; productRef = 9FE034C1DA7D1710D79323AB /* MLXFFT */; };
 		1BB2D451BCF6F2DFE6E77C95 /* DiffPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83CD0D2B6E4501F1852C3DB /* DiffPreviewView.swift */; };
+		21DB3EA79F650FB4B9BE3D57 /* AIServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89DE5E6827BD8109BFE5A511 /* AIServiceProtocol.swift */; };
 		269520EAD626864CCD9ECA28 /* OllamaKit in Frameworks */ = {isa = PBXBuildFile; productRef = EEFE67C67C5B6666C11614D4 /* OllamaKit */; };
 		352A4E57889DB8535D41018B /* CommandPaletteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F72CE307AC3235FBF4DC26 /* CommandPaletteView.swift */; };
+		35617884955A2D078484196F /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 8E48223CFB9C3F578B7AEF62 /* MLX */; };
 		35FD3A3E2A92735CF18A0CEE /* WorkspaceFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 095EA0E6F78FA75CCD757701 /* WorkspaceFile.swift */; };
+		361E162F81B4A270395CCCB9 /* SafetyDiffPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0055444CB2D17849B04B26 /* SafetyDiffPreviewView.swift */; };
+		42D6B191F48E15FAB8567690 /* MLXOptimizers in Frameworks */ = {isa = PBXBuildFile; productRef = 91D9DC8E0345C4E2182929FF /* MLXOptimizers */; };
 		4B1E4130C4EE183E6D14AD42 /* EditorModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35EFD92DD2062385C9613A6B /* EditorModels.swift */; };
 		4CA23C4D3B5491D4BF8AC6AC /* CodeEditorView in Frameworks */ = {isa = PBXBuildFile; productRef = 179637CB24490BEA9E07FB5A /* CodeEditorView */; };
 		4CEAD8E18FF766C072EEE3EA /* EditorTabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4ECF6B8A7B32685EB32FC6B /* EditorTabBarView.swift */; };
+		4FA127C03F9417B6BC0E5513 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 85C677EC4E1DCD46A1EF36AF /* MLXLLM */; };
 		51073D2FC87E7DBB9EA77ADB /* VoltaicVelocityApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3B67F8511FEC25AE4EB0DE /* VoltaicVelocityApp.swift */; };
+		541C70ADEFB81133CBBF7E66 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 5630A6324AF3C666BBCA09F0 /* MarkdownUI */; };
 		5966F08951B6B509EA6FB8F1 /* ProjectViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851C5554E9E054AD59903037 /* ProjectViewModel.swift */; };
+		5EC4A2E4DEABC62C47A15FB5 /* MLXRandom in Frameworks */ = {isa = PBXBuildFile; productRef = 11DE49F7EB4734EFDBCF8ADD /* MLXRandom */; };
 		6D6B5425BC3817781CAFDC3A /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9723AFC0748AB80089E87B1E /* TerminalView.swift */; };
+		876F256DC0CA52080D05A83D /* MLXService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C32B41EE67AB2E9F16BFCFC /* MLXService.swift */; };
 		8841C5F06A415C88A56F2D36 /* CodeLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9985346AA8F348ADF16D792 /* CodeLanguage.swift */; };
 		8ADD63E70E4521F4576C53E5 /* ChatBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6533D1FEFFAC91A6F974BB7 /* ChatBubbleView.swift */; };
 		90BFE50BAF6988E94AD1589A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70356881735126C39C4AC3DB /* SettingsView.swift */; };
 		A305651B69AD5CF761ECD57A /* GitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EFC94413F0B427AAD6F2526 /* GitService.swift */; };
+		A67DD1343CF5E5EAE8531FEC /* TerminalManagerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E39F5100B2FA960E483CE80 /* TerminalManagerViewModel.swift */; };
 		AC87DCE3CAEB24F2912B2193 /* TerminalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECFF341D16FC2553834BD1D /* TerminalService.swift */; };
 		AFBE1AB068DC77BD60E47A10 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC20A69EDEE18987E93BF7D /* ContentView.swift */; };
 		AFD97B6B8962E15D3A0E7C48 /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1090FB988F577341B0D7B54 /* EditorView.swift */; };
+		B40AF1CABC5F97576D0BAC81 /* BackendService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D91A16966DCA01A9BA751AA /* BackendService.swift */; };
 		B8998A9616382A157DAC24FD /* TerminalViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41EFBD23116FD7CA6E89C29 /* TerminalViewModel.swift */; };
 		BD10BC7092DF2A525AD7BE19 /* VoltaicVelocityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C17CCB913AA2AB4544491D /* VoltaicVelocityTests.swift */; };
+		BFF0728EBFA9AF2412269720 /* MarkdownTheme+Volt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B05C9D1BDD538FD57963044 /* MarkdownTheme+Volt.swift */; };
 		D443687B274BD1655CEE1A6E /* FileSystemService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE2FF80610F755F04759CEBE /* FileSystemService.swift */; };
 		D7BF664A14273B8F755AA689 /* MultiAgentCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C03EFE9DA40926D67328F7 /* MultiAgentCoordinator.swift */; };
 		DFD9659167F716BA206A2474 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78F3219F442ACF8C67C4FB20 /* SidebarView.swift */; };
 		E2C9C8ABA8EDBEF54FF20077 /* OllamaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 941CD5EE9CFAB094199A8566 /* OllamaService.swift */; };
 		E5CE6A3A5FC0D1B039E6389C /* AgentViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F0881D0F1B67B111FEAC10 /* AgentViewModel.swift */; };
+		E8DF6214B47B136987F1905A /* MLXNN in Frameworks */ = {isa = PBXBuildFile; productRef = EC4A0CFF8FC146E9F13BA32A /* MLXNN */; };
 		EBD8DB2685BC0C79CCFC5BB2 /* LiveServerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44520E6C98FFD278306207B /* LiveServerService.swift */; };
 		EE39279275E669C7D0705289 /* AgentPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7FDBA062C034BAB5A84C8D /* AgentPanelView.swift */; };
 /* End PBXBuildFile section */
@@ -54,6 +67,7 @@
 		095EA0E6F78FA75CCD757701 /* WorkspaceFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFile.swift; sourceTree = "<group>"; };
 		0A7FDBA062C034BAB5A84C8D /* AgentPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPanelView.swift; sourceTree = "<group>"; };
 		1F3B67F8511FEC25AE4EB0DE /* VoltaicVelocityApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoltaicVelocityApp.swift; sourceTree = "<group>"; };
+		2D91A16966DCA01A9BA751AA /* BackendService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Sources/VoltaicVelocityApp/Services/BackendService.swift; sourceTree = "<group>"; };
 		2E9500BDA6F7129BE60E140E /* FeedbackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackService.swift; sourceTree = "<group>"; };
 		35EFD92DD2062385C9613A6B /* EditorModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorModels.swift; sourceTree = "<group>"; };
 		48E47AF6EBB0A6FAEBE0D044 /* OKJSONValue+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OKJSONValue+Extensions.swift"; sourceTree = "<group>"; };
@@ -65,8 +79,12 @@
 		71F0881D0F1B67B111FEAC10 /* AgentViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentViewModel.swift; sourceTree = "<group>"; };
 		77D3DB8595074BA01829AAC5 /* EditorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorViewModel.swift; sourceTree = "<group>"; };
 		78F3219F442ACF8C67C4FB20 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		7B05C9D1BDD538FD57963044 /* MarkdownTheme+Volt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Sources/VoltaicVelocityApp/Views/MarkdownTheme+Volt.swift"; sourceTree = "<group>"; };
 		851C5554E9E054AD59903037 /* ProjectViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectViewModel.swift; sourceTree = "<group>"; };
+		89DE5E6827BD8109BFE5A511 /* AIServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIServiceProtocol.swift; sourceTree = "<group>"; };
+		8C32B41EE67AB2E9F16BFCFC /* MLXService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXService.swift; sourceTree = "<group>"; };
 		8E19D7FD918114B03C5A1B7A /* VoltaicVelocity.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoltaicVelocity.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8E39F5100B2FA960E483CE80 /* TerminalManagerViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Sources/VoltaicVelocityApp/ViewModels/TerminalManagerViewModel.swift; sourceTree = SOURCE_ROOT; };
 		8EFC94413F0B427AAD6F2526 /* GitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitService.swift; sourceTree = "<group>"; };
 		941CD5EE9CFAB094199A8566 /* OllamaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaService.swift; sourceTree = "<group>"; };
 		9723AFC0748AB80089E87B1E /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
@@ -74,6 +92,7 @@
 		A4ECF6B8A7B32685EB32FC6B /* EditorTabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorTabBarView.swift; sourceTree = "<group>"; };
 		A7C03EFE9DA40926D67328F7 /* MultiAgentCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiAgentCoordinator.swift; sourceTree = "<group>"; };
 		A8C17CCB913AA2AB4544491D /* VoltaicVelocityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoltaicVelocityTests.swift; sourceTree = "<group>"; };
+		AB0055444CB2D17849B04B26 /* SafetyDiffPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyDiffPreviewView.swift; sourceTree = "<group>"; };
 		AE2FF80610F755F04759CEBE /* FileSystemService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemService.swift; sourceTree = "<group>"; };
 		C6533D1FEFFAC91A6F974BB7 /* ChatBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBubbleView.swift; sourceTree = "<group>"; };
 		D41EFBD23116FD7CA6E89C29 /* TerminalViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalViewModel.swift; sourceTree = "<group>"; };
@@ -91,6 +110,13 @@
 			files = (
 				4CA23C4D3B5491D4BF8AC6AC /* CodeEditorView in Frameworks */,
 				269520EAD626864CCD9ECA28 /* OllamaKit in Frameworks */,
+				35617884955A2D078484196F /* MLX in Frameworks */,
+				5EC4A2E4DEABC62C47A15FB5 /* MLXRandom in Frameworks */,
+				E8DF6214B47B136987F1905A /* MLXNN in Frameworks */,
+				42D6B191F48E15FAB8567690 /* MLXOptimizers in Frameworks */,
+				1A658F82A61B4BEA6439186D /* MLXFFT in Frameworks */,
+				4FA127C03F9417B6BC0E5513 /* MLXLLM in Frameworks */,
+				541C70ADEFB81133CBBF7E66 /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,22 +138,43 @@
 				8CF10791F8F76782859DDBDC /* VoltaicVelocityApp */,
 				9828FDAD2EE6C31D66BE24BF /* VoltaicVelocityTests */,
 				18AE1E5F388B5E7D2E095052 /* Products */,
+				C008726EFAA15A2D6D7BCA80 /* Sources */,
 			);
 			sourceTree = "<group>";
 		};
 		1FCD8305AC87822203E71BAB /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				89DE5E6827BD8109BFE5A511 /* AIServiceProtocol.swift */,
 				2E9500BDA6F7129BE60E140E /* FeedbackService.swift */,
 				AE2FF80610F755F04759CEBE /* FileSystemService.swift */,
 				8EFC94413F0B427AAD6F2526 /* GitService.swift */,
 				A44520E6C98FFD278306207B /* LiveServerService.swift */,
+				8C32B41EE67AB2E9F16BFCFC /* MLXService.swift */,
 				A7C03EFE9DA40926D67328F7 /* MultiAgentCoordinator.swift */,
 				48E47AF6EBB0A6FAEBE0D044 /* OKJSONValue+Extensions.swift */,
 				941CD5EE9CFAB094199A8566 /* OllamaService.swift */,
 				4ECFF341D16FC2553834BD1D /* TerminalService.swift */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		47E8C6D281BBC93082900A00 /* VoltaicVelocityApp */ = {
+			isa = PBXGroup;
+			children = (
+				F7F578157380F7A9EAA1E355 /* Services */,
+				D4402A1D874A658D2869AA42 /* Views */,
+				875A152C2ADA3B6BA4151C4B /* ViewModels */,
+			);
+			name = VoltaicVelocityApp;
+			sourceTree = "<group>";
+		};
+		875A152C2ADA3B6BA4151C4B /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				8E39F5100B2FA960E483CE80 /* TerminalManagerViewModel.swift */,
+			);
+			name = ViewModels;
 			sourceTree = "<group>";
 		};
 		8CF10791F8F76782859DDBDC /* VoltaicVelocityApp */ = {
@@ -175,11 +222,36 @@
 				E83CD0D2B6E4501F1852C3DB /* DiffPreviewView.swift */,
 				A4ECF6B8A7B32685EB32FC6B /* EditorTabBarView.swift */,
 				F1090FB988F577341B0D7B54 /* EditorView.swift */,
+				AB0055444CB2D17849B04B26 /* SafetyDiffPreviewView.swift */,
 				70356881735126C39C4AC3DB /* SettingsView.swift */,
 				78F3219F442ACF8C67C4FB20 /* SidebarView.swift */,
 				9723AFC0748AB80089E87B1E /* TerminalView.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		C008726EFAA15A2D6D7BCA80 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				47E8C6D281BBC93082900A00 /* VoltaicVelocityApp */,
+			);
+			name = Sources;
+			sourceTree = "<group>";
+		};
+		D4402A1D874A658D2869AA42 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				7B05C9D1BDD538FD57963044 /* MarkdownTheme+Volt.swift */,
+			);
+			name = Views;
+			sourceTree = "<group>";
+		};
+		F7F578157380F7A9EAA1E355 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				2D91A16966DCA01A9BA751AA /* BackendService.swift */,
+			);
+			name = Services;
 			sourceTree = "<group>";
 		};
 		F8DA3B80D70A1A508D686F91 /* Models */ = {
@@ -210,6 +282,13 @@
 			packageProductDependencies = (
 				179637CB24490BEA9E07FB5A /* CodeEditorView */,
 				EEFE67C67C5B6666C11614D4 /* OllamaKit */,
+				8E48223CFB9C3F578B7AEF62 /* MLX */,
+				11DE49F7EB4734EFDBCF8ADD /* MLXRandom */,
+				EC4A0CFF8FC146E9F13BA32A /* MLXNN */,
+				91D9DC8E0345C4E2182929FF /* MLXOptimizers */,
+				9FE034C1DA7D1710D79323AB /* MLXFFT */,
+				85C677EC4E1DCD46A1EF36AF /* MLXLLM */,
+				5630A6324AF3C666BBCA09F0 /* MarkdownUI */,
 			);
 			productName = VoltaicVelocity;
 			productReference = 8E19D7FD918114B03C5A1B7A /* VoltaicVelocity.app */;
@@ -227,8 +306,6 @@
 				AA98D1197C555BD4E7B52119 /* PBXTargetDependency */,
 			);
 			name = VoltaicVelocityTests;
-			packageProductDependencies = (
-			);
 			productName = VoltaicVelocityTests;
 			productReference = 556B691C6265DCE7FA5912BD /* VoltaicVelocityTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -258,7 +335,10 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				457E16364139EABA89EC1478 /* XCRemoteSwiftPackageReference "CodeEditorView" */,
+				373E95DD8DEC5337579A4B93 /* XCRemoteSwiftPackageReference "mlx-swift" */,
+				DE30E01C098FF72D2D393537 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				68E552B465B96BAC5B8AC7E2 /* XCRemoteSwiftPackageReference "OllamaKit" */,
+				DCD036B800221AB3F1AB8941 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 18AE1E5F388B5E7D2E095052 /* Products */;
@@ -284,6 +364,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				21DB3EA79F650FB4B9BE3D57 /* AIServiceProtocol.swift in Sources */,
 				EE39279275E669C7D0705289 /* AgentPanelView.swift in Sources */,
 				E5CE6A3A5FC0D1B039E6389C /* AgentViewModel.swift in Sources */,
 				8ADD63E70E4521F4576C53E5 /* ChatBubbleView.swift in Sources */,
@@ -301,10 +382,12 @@
 				0C98DBA1CF34E1C47A03E39F /* GitViewModel.swift in Sources */,
 				EBD8DB2685BC0C79CCFC5BB2 /* LiveServerService.swift in Sources */,
 				17163449ED6F7CD4D9A5C4F3 /* LiveServerViewModel.swift in Sources */,
+				876F256DC0CA52080D05A83D /* MLXService.swift in Sources */,
 				D7BF664A14273B8F755AA689 /* MultiAgentCoordinator.swift in Sources */,
 				0AE26305CF982AF9F77C4859 /* OKJSONValue+Extensions.swift in Sources */,
 				E2C9C8ABA8EDBEF54FF20077 /* OllamaService.swift in Sources */,
 				5966F08951B6B509EA6FB8F1 /* ProjectViewModel.swift in Sources */,
+				361E162F81B4A270395CCCB9 /* SafetyDiffPreviewView.swift in Sources */,
 				90BFE50BAF6988E94AD1589A /* SettingsView.swift in Sources */,
 				DFD9659167F716BA206A2474 /* SidebarView.swift in Sources */,
 				AC87DCE3CAEB24F2912B2193 /* TerminalService.swift in Sources */,
@@ -312,6 +395,9 @@
 				B8998A9616382A157DAC24FD /* TerminalViewModel.swift in Sources */,
 				51073D2FC87E7DBB9EA77ADB /* VoltaicVelocityApp.swift in Sources */,
 				35FD3A3E2A92735CF18A0CEE /* WorkspaceFile.swift in Sources */,
+				B40AF1CABC5F97576D0BAC81 /* BackendService.swift in Sources */,
+				BFF0728EBFA9AF2412269720 /* MarkdownTheme+Volt.swift in Sources */,
+				A67DD1343CF5E5EAE8531FEC /* TerminalManagerViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -439,7 +525,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.voltaicvelocity.app;
-				PRODUCT_NAME = "Voltaic Velocity";
+				PRODUCT_NAME = "Volt Velocity";
 				SDKROOT = macosx;
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 5.0;
@@ -462,7 +548,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.voltaicvelocity.app;
-				PRODUCT_NAME = "Voltaic Velocity";
+				PRODUCT_NAME = "Volt Velocity";
 				SDKROOT = macosx;
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 5.0;
@@ -558,6 +644,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		373E95DD8DEC5337579A4B93 /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.20.0;
+			};
+		};
 		457E16364139EABA89EC1478 /* XCRemoteSwiftPackageReference "CodeEditorView" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/mchakravarty/CodeEditorView.git";
@@ -574,13 +668,64 @@
 				version = 5.0.5;
 			};
 		};
+		DCD036B800221AB3F1AB8941 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.0;
+			};
+		};
+		DE30E01C098FF72D2D393537 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		11DE49F7EB4734EFDBCF8ADD /* MLXRandom */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 373E95DD8DEC5337579A4B93 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLXRandom;
+		};
 		179637CB24490BEA9E07FB5A /* CodeEditorView */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 457E16364139EABA89EC1478 /* XCRemoteSwiftPackageReference "CodeEditorView" */;
 			productName = CodeEditorView;
+		};
+		5630A6324AF3C666BBCA09F0 /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DCD036B800221AB3F1AB8941 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
+		};
+		85C677EC4E1DCD46A1EF36AF /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DE30E01C098FF72D2D393537 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
+		};
+		8E48223CFB9C3F578B7AEF62 /* MLX */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 373E95DD8DEC5337579A4B93 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLX;
+		};
+		91D9DC8E0345C4E2182929FF /* MLXOptimizers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 373E95DD8DEC5337579A4B93 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLXOptimizers;
+		};
+		9FE034C1DA7D1710D79323AB /* MLXFFT */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 373E95DD8DEC5337579A4B93 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLXFFT;
+		};
+		EC4A0CFF8FC146E9F13BA32A /* MLXNN */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 373E95DD8DEC5337579A4B93 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLXNN;
 		};
 		EEFE67C67C5B6666C11614D4 /* OllamaKit */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -1,4 +1,5 @@
 import SwiftUI
+import MarkdownUI
 
 struct ChatBubbleView: View {
     enum FeedbackState {
@@ -57,19 +58,24 @@ struct ChatBubbleView: View {
             }
             
             Text(message.text)
-                .font(.system(size: 14))
+                .font(.system(size: 14, weight: .regular, design: .rounded))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(Color.accentColor.opacity(0.12))
+                .background(Material.ultraThin)
                 .foregroundColor(.primary)
                 .cornerRadius(18)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
 
             Circle()
                 .fill(Color.gray.opacity(0.3))
                 .frame(width: 28, height: 28)
                 .overlay(
                     Text("U")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundColor(.primary)
                 )
         }
@@ -135,13 +141,10 @@ struct ChatBubbleView: View {
                             feedbackState = .liked
                             FeedbackService.shared.saveFeedback(query: "", response: message.text, isPositive: true)
                         }
-                        .foregroundColor(feedbackState == .liked ? .green : .secondary)
-                        
                         chatAction(icon: feedbackState == .disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown", label: "Bad") {
                             feedbackState = .disliked
                             FeedbackService.shared.saveFeedback(query: "", response: message.text, isPositive: false)
                         }
-                        .foregroundColor(feedbackState == .disliked ? .red : .secondary)
 
                         Spacer()
 
@@ -154,6 +157,15 @@ struct ChatBubbleView: View {
                     .animation(.easeInOut(duration: 0.15), value: isHovering)
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Material.ultraThin)
+            .cornerRadius(18)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 2)
 
             Spacer(minLength: 40)
         }
@@ -162,43 +174,12 @@ struct ChatBubbleView: View {
         .onHover { isHovering = $0 }
     }
 
-    // MARK: — Message Content Renderer (basic code block support)
+    // MARK: — Message Content Renderer
     @ViewBuilder
     private func renderMessageContent(_ text: String) -> some View {
-        let parts = splitByCodeBlocks(text)
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(parts.indices, id: \.self) { i in
-                let part = parts[i]
-                if part.isCode {
-                    // Code block
-                    VStack(alignment: .leading, spacing: 0) {
-                        if !part.language.isEmpty {
-                            Text(part.language)
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                .foregroundColor(.secondary)
-                                .padding(.horizontal, 12)
-                                .padding(.top, 8)
-                                .padding(.bottom, 4)
-                        }
-                        Text(part.content)
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundColor(Color(red: 0.85, green: 0.87, blue: 0.90))
-                            .textSelection(.enabled)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(red: 0.12, green: 0.12, blue: 0.14))
-                    .cornerRadius(10)
-                } else if !part.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    // Regular text
-                    Text(part.content)
-                        .font(.system(size: 14))
-                        .foregroundColor(.primary)
-                        .textSelection(.enabled)
-                }
-            }
-        }
+        Markdown(text)
+            .markdownTheme(.voltTheme)
+            .textSelection(.enabled)
     }
 
     private func chatAction(icon: String, label: String, action: @escaping () -> Void) -> some View {
@@ -209,52 +190,6 @@ struct ChatBubbleView: View {
                 .help(label)
         }
         .buttonStyle(.plain)
-    }
-
-    // MARK: — Code Block Parser
-    private struct TextPart {
-        let content: String
-        let isCode: Bool
-        let language: String
-    }
-
-    private func splitByCodeBlocks(_ text: String) -> [TextPart] {
-        var parts: [TextPart] = []
-        let pattern = "```(\\w*)\\n([\\s\\S]*?)```"
-
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return [TextPart(content: text, isCode: false, language: "")]
-        }
-
-        let nsText = text as NSString
-        var lastEnd = 0
-
-        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
-
-        for match in matches {
-            let matchRange = match.range
-            if matchRange.location > lastEnd {
-                let before = nsText.substring(with: NSRange(location: lastEnd, length: matchRange.location - lastEnd))
-                parts.append(TextPart(content: before, isCode: false, language: ""))
-            }
-
-            let lang = match.numberOfRanges > 1 ? nsText.substring(with: match.range(at: 1)) : ""
-            let code = match.numberOfRanges > 2 ? nsText.substring(with: match.range(at: 2)) : ""
-            parts.append(TextPart(content: code, isCode: true, language: lang))
-
-            lastEnd = matchRange.location + matchRange.length
-        }
-
-        if lastEnd < nsText.length {
-            let remaining = nsText.substring(from: lastEnd)
-            parts.append(TextPart(content: remaining, isCode: false, language: ""))
-        }
-
-        if parts.isEmpty {
-            parts.append(TextPart(content: text, isCode: false, language: ""))
-        }
-
-        return parts
     }
 }
 
@@ -448,6 +383,16 @@ private struct ActivityRow: View {
                     .foregroundColor(.red.opacity(0.8))
                     .lineLimit(1)
             }
+        case .warning(let message):
+            HStack(spacing: 4) {
+                Text("Warning:")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.orange)
+                Text(message.prefix(60) + (message.count > 60 ? "…" : ""))
+                    .font(.system(size: 12))
+                    .foregroundColor(.orange.opacity(0.8))
+                    .lineLimit(1)
+            }
         case .info(let message):
             Text(message)
                 .font(.system(size: 12))
@@ -505,6 +450,7 @@ private struct ActivityRow: View {
         case .ranCommand: return "terminal"
         case .completed: return "checkmark.circle.fill"
         case .error: return "exclamationmark.triangle.fill"
+        case .warning: return "exclamationmark.triangle"
         case .info: return "info.circle"
         case .askingUser: return "person.fill.questionmark"
         case .searchingWeb: return "globe"
@@ -524,6 +470,7 @@ private struct ActivityRow: View {
         case .ranCommand: return .secondary
         case .completed: return .green
         case .error: return .red
+        case .warning: return .orange
         case .info: return .blue
         case .askingUser: return .orange
         case .searchingWeb: return .teal

@@ -4,14 +4,17 @@ import SwiftUI
 struct VoltaicVelocityApp: App {
     @StateObject private var projectViewModel = ProjectViewModel()
     @StateObject private var editorViewModel = EditorViewModel()
-    @StateObject private var terminalViewModel = TerminalViewModel()
     @StateObject private var gitViewModel = GitViewModel()
     @StateObject private var agentViewModel = AgentViewModel()
     @StateObject private var liveServerViewModel = LiveServerViewModel()
+    @StateObject private var terminalManager = TerminalManagerViewModel()
 
     init() {
         // Ensure app remains responsive during long-running tool operations
         AppDefaults.registerDefaults()
+        
+        // Start the background python agent server
+        BackendService.shared.start()
     }
 
     var body: some Scene {
@@ -19,7 +22,7 @@ struct VoltaicVelocityApp: App {
             ContentView(
                 projectViewModel: projectViewModel,
                 editorViewModel: editorViewModel,
-                terminalViewModel: terminalViewModel,
+                terminalManager: terminalManager,
                 gitViewModel: gitViewModel,
                 agentViewModel: agentViewModel,
                 liveServerViewModel: liveServerViewModel
@@ -27,7 +30,7 @@ struct VoltaicVelocityApp: App {
             .frame(minWidth: 1300, minHeight: 800)
             .environmentObject(projectViewModel)
             .environmentObject(editorViewModel)
-            .environmentObject(terminalViewModel)
+            .environmentObject(terminalManager)
             .environmentObject(agentViewModel)
         }
         .commands {
