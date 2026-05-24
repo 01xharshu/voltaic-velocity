@@ -16,7 +16,8 @@ let package = Package(
         .package(url: "https://github.com/mchakravarty/CodeEditorView.git", exact: "0.15.4"),
         .package(url: "https://github.com/kevinhermawan/OllamaKit.git", exact: "5.0.5"),
         .package(url: "https://github.com/ml-explore/mlx-swift.git", from: "0.20.0"),
-        .package(url: "https://github.com/ml-explore/mlx-swift-lm.git", branch: "main")
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm.git", branch: "main"),
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui.git", from: "2.0.2")
     ],
     targets: [
         .executableTarget(
@@ -29,7 +30,8 @@ let package = Package(
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXOptimizers", package: "mlx-swift"),
                 .product(name: "MLXFFT", package: "mlx-swift"),
-                .product(name: "MLXLLM", package: "mlx-swift-lm")
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MarkdownUI", package: "swift-markdown-ui")
             ],
             path: "Sources/VoltaicVelocityApp",
             resources: [

@@ -73,7 +73,7 @@ Keep your text response concise and fast. You do not need to write an essay. Str
 def fetch_and_categorize_models():
     """Dynamically fetch local Ollama models and intelligently categorize them."""
     try:
-        req = urllib.request.urlopen("http://127.0.0.1:11434/api/tags")
+        req = urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=1.0)
         data = json.loads(req.read())
         models = [m["name"] for m in data.get("models", [])]
     except Exception as e:
@@ -123,15 +123,18 @@ def fetch_and_categorize_models():
     logger.info(f"Dynamically mapped models: {categorized}")
     return categorized
 
-# Initialize models dynamically on startup
-MODELS = fetch_and_categorize_models()
+MODELS_CACHE = None
 
 def get_best_available_model(task_type: str = "coder") -> list:
     """Returns the list of available models for the given task type"""
-    if task_type not in MODELS:
+    global MODELS_CACHE
+    if MODELS_CACHE is None:
+        MODELS_CACHE = fetch_and_categorize_models()
+    
+    if task_type not in MODELS_CACHE:
         task_type = "general"
     
-    return MODELS.get(task_type, MODELS["general"])
+    return MODELS_CACHE.get(task_type, MODELS_CACHE["general"])
 
 # Model priority for auto-fallback
 MODEL_PRIORITY = ["coder", "reasoning", "general"]
@@ -261,8 +264,23 @@ async def execute_tool(name: str, arguments: dict) -> str:
     elif name == "run_command":
         cmd = arguments.get("command")
         try:
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
-            return f"Command Exit Code: {result.returncode}\nStdout: {result.stdout}\nStderr: {result.stderr}"
+            process = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30.0)
+                stdout_str = stdout.decode('utf-8', errors='replace')
+                stderr_str = stderr.decode('utf-8', errors='replace')
+                return f"Command Exit Code: {process.returncode}\nStdout: {stdout_str}\nStderr: {stderr_str}"
+            except asyncio.TimeoutError:
+                try:
+                    process.terminate()
+                    await process.wait()
+                except Exception:
+                    pass
+                return "Command failed: Timeout after 30 seconds"
         except Exception as e:
             return f"Command failed: {str(e)}"
             
@@ -295,45 +313,100 @@ class TokenBuffer:
                 await self.ws.send_text(json.dumps({"type": "token", "text": out}))
             self.buffer = ""
 
-async def worker_agent_task(task_desc: str, websocket: WebSocket):
+async def worker_agent_task(task_desc: str, websocket: WebSocket, sys_prompt: str):
     model_list = get_best_available_model("coder")
     model = model_list[0] if model_list else "ollama/qwen2.5-coder:7b"
     
     await websocket.send_text(json.dumps({"type": "status", "message": f"Worker thread started using {model}..."}))
     
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + "\nYou are a fast Worker Agent. Execute the given task perfectly using your tools. Do not output text, just run the necessary tool calls."},
+        {"role": "system", "content": sys_prompt + "\nYou are a fast Worker Agent. Execute the given task perfectly using your tools. Do not output text, just run the necessary tool calls."},
         {"role": "user", "content": task_desc}
     ]
     
     try:
         from litellm import acompletion
-        response = await acompletion(
-            model=model,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto"
-        )
-        
+        try:
+            response = await acompletion(
+                model=model,
+                messages=messages,
+                tools=tools,
+                tool_choice="auto"
+            )
+        except Exception as tool_err:
+            logger.warning(f"Worker model failed with tools: {tool_err}. Retrying without tools parameter...")
+            response = await acompletion(
+                model=model,
+                messages=messages
+            )
+            
         message = response.choices[0].message
+        final_full_response = message.content or ""
+        tool_calls = []
+        
         if hasattr(message, 'tool_calls') and message.tool_calls:
             for tc in message.tool_calls:
-                await websocket.send_text(json.dumps({"type": "tool_start", "name": tc.function.name}))
-                args_str = tc.function.arguments
-                await websocket.send_text(json.dumps({"type": "tool_stream", "name": tc.function.name, "chunk": args_str}))
-                try:
-                    args = json.loads(args_str)
-                except:
+                tool_calls.append({
+                    "id": tc.id or "call_worker",
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments
+                })
+                
+        if not tool_calls and "{" in final_full_response:
+            try:
+                start_idx = final_full_response.find('{')
+                end_idx = final_full_response.rfind('}')
+                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                    json_str = final_full_response[start_idx:end_idx+1]
+                    data = json.loads(json_str)
+                    func_name = data.get("function_name") or data.get("name")
+                    args = data.get("arguments") or data.get("parameters") or data
+                    if func_name:
+                        args_str = json.dumps(args) if isinstance(args, dict) else str(args)
+                        tool_calls.append({
+                            "id": "call_worker_fallback",
+                            "name": func_name,
+                            "arguments": args_str
+                        })
+            except Exception as e:
+                logger.error(f"Worker fallback parsing failed: {e}")
+                
+        if not tool_calls and "```" in final_full_response:
+            blocks = re.findall(r'```(?:\w+)?\n([\s\S]*?)\n```', final_full_response)
+            if blocks:
+                code_content = blocks[0]
+                files_found = re.findall(r'([\w\-\.]+\.\w+)', task_desc)
+                if files_found:
+                    filename = files_found[0]
+                    tool_calls.append({
+                        "id": "call_worker_markdown_fallback",
+                        "name": "rewrite_file",
+                        "arguments": json.dumps({"path": filename, "content": code_content})
+                    })
+        
+        if tool_calls:
+            for tc in tool_calls:
+                name = tc["name"]
+                await websocket.send_text(json.dumps({"type": "tool_start", "name": name}))
+                args = tc["arguments"]
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except:
+                        args = {}
+                elif not isinstance(args, dict):
                     args = {}
-                result = await execute_tool(tc.function.name, args)
-                await websocket.send_text(json.dumps({"type": "tool_finish", "name": tc.function.name, "result": result}))
+                
+                await websocket.send_text(json.dumps({"type": "tool_stream", "name": name, "chunk": json.dumps(args)}))
+                result = await execute_tool(name, args)
+                await websocket.send_text(json.dumps({"type": "tool_finish", "name": name, "result": result}))
         
         await websocket.send_text(json.dumps({"type": "status", "message": "Worker thread finished."}))
     except Exception as e:
         logger.error(f"Worker task failed: {e}")
         await websocket.send_text(json.dumps({"type": "error", "message": f"Worker task failed: {str(e)}"}))
 
-async def robust_agent_loop(prompt: str, websocket: WebSocket):
+async def robust_agent_loop(prompt: str, websocket: WebSocket, project_description: str = "", open_files: str = "", project_summary: str = ""):
     task_type = determine_task_type(prompt)
     model_list = get_best_available_model("reasoning" if task_type == "reasoning" else "general")
     
@@ -342,8 +415,18 @@ async def robust_agent_loop(prompt: str, websocket: WebSocket):
         
     await websocket.send_text(json.dumps({"type": "status", "message": f"Master Reasoner: {model_list[0]}..."}))
     
+    sys_prompt = SYSTEM_PROMPT
+    if project_description or project_summary or open_files:
+        sys_prompt += f"\n\n# Context about the workspace:\n"
+        if project_description:
+            sys_prompt += f"Project Structure:\n{project_description}\n"
+        if project_summary:
+            sys_prompt += f"Project Summary:\n{project_summary}\n"
+        if open_files:
+            sys_prompt += f"Open files: {open_files}\n"
+            
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + "\nYou are the Master Reasoner. Break down the task. You can output <worker_task>instruction</worker_task> tags to spawn concurrent worker agents to execute specific tasks (like file creation or updates). Avoid writing raw code or JSON directly in your response; use workers or tools."}
+        {"role": "system", "content": sys_prompt + "\nYou are the Master Reasoner. Break down the task. You can output <worker_task>instruction</worker_task> tags to spawn concurrent worker agents to execute specific tasks (like file creation or updates). Avoid writing raw code or JSON directly in your response; use workers or tools."}
     ]
     
     recent_history = await load_recent_memory(limit=5)
@@ -358,13 +441,21 @@ async def robust_agent_loop(prompt: str, websocket: WebSocket):
         model = model_list[attempt % len(model_list)]
         try:
             from litellm import acompletion
-            response = await acompletion(
-                model=model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
-                stream=True
-            )
+            try:
+                response = await acompletion(
+                    model=model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    stream=True
+                )
+            except Exception as tool_err:
+                logger.warning(f"Master model failed with tools: {tool_err}. Retrying without tools parameter...")
+                response = await acompletion(
+                    model=model,
+                    messages=messages,
+                    stream=True
+                )
             
             tool_calls = []
             
@@ -380,12 +471,14 @@ async def robust_agent_loop(prompt: str, websocket: WebSocket):
                             tool_calls.append({"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": ""}})
                             await websocket.send_text(json.dumps({"type": "tool_start", "name": tc.function.name}))
                         if hasattr(tc.function, 'arguments') and tc.function.arguments:
-                            tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
-                            await websocket.send_text(json.dumps({"type": "tool_stream", "name": tool_calls[tc.index]["function"]["name"], "chunk": tc.function.arguments}))
+                            args_val = tc.function.arguments
+                            if isinstance(args_val, dict):
+                                args_val = json.dumps(args_val)
+                            tool_calls[tc.index]["function"]["arguments"] += args_val
+                            await websocket.send_text(json.dumps({"type": "tool_stream", "name": tool_calls[tc.index]["function"]["name"], "chunk": args_val}))
                             
             if not tool_calls and "{" in final_full_response:
                 try:
-                    blocks = re.findall(r'\{[\s\S]*?\}', final_full_response) 
                     start_idx = final_full_response.find('{')
                     end_idx = final_full_response.rfind('}')
                     if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
@@ -412,9 +505,13 @@ async def robust_agent_loop(prompt: str, websocket: WebSocket):
                 await websocket.send_text(json.dumps({"type": "status", "message": f"Executing {len(tool_calls)} master tools..."}))
                 for tc in tool_calls:
                     name = tc["function"]["name"]
-                    try:
-                        args = json.loads(tc["function"]["arguments"])
-                    except:
+                    args = tc["function"]["arguments"]
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except:
+                            args = {}
+                    elif not isinstance(args, dict):
                         args = {}
                     
                     result = await execute_tool(name, args)
@@ -436,7 +533,7 @@ async def robust_agent_loop(prompt: str, websocket: WebSocket):
             worker_tasks = re.findall(r'<worker_task>(.*?)</worker_task>', final_full_response, re.DOTALL)
             if worker_tasks:
                 await websocket.send_text(json.dumps({"type": "status", "message": f"Spawning {len(worker_tasks)} concurrent worker threads..."}))
-                tasks = [worker_agent_task(desc, websocket) for desc in worker_tasks]
+                tasks = [worker_agent_task(desc, websocket, sys_prompt) for desc in worker_tasks]
                 await asyncio.gather(*tasks)
 
             await append_to_memory(prompt, final_full_response)
@@ -460,7 +557,22 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 request = json.loads(raw)
                 prompt = request.get("prompt", "")
-                await robust_agent_loop(prompt, websocket)
+                project_path = request.get("project_path", "")
+                project_description = request.get("project_description", "")
+                open_files = request.get("open_files", "")
+                project_summary = request.get("project_summary", "")
+                
+                if project_path and os.path.exists(project_path):
+                    os.chdir(project_path)
+                    logger.info(f"Changed working directory to project path: {project_path}")
+                
+                await robust_agent_loop(
+                    prompt=prompt,
+                    websocket=websocket,
+                    project_description=project_description,
+                    open_files=open_files,
+                    project_summary=project_summary
+                )
             except json.JSONDecodeError:
                 await websocket.send_text(json.dumps({"error": "Invalid JSON format."}))
     except WebSocketDisconnect:

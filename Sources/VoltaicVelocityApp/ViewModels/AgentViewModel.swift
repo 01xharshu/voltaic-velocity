@@ -219,13 +219,25 @@ final class AgentViewModel: ObservableObject {
         let webSocketTask = session.webSocketTask(with: url)
         webSocketTask.resume()
         
-        let requestDict: [String: Any] = ["prompt": userText]
+        let projectPath = projectViewModel?.projectURL?.path ?? ""
+        let projectDescription = projectViewModel?.projectStructureDescription ?? "No project open."
+        let openFiles = projectViewModel?.workspaceItems.map { $0.name }.joined(separator: ", ") ?? "None"
+        let projectSummary = projectViewModel?.projectSummary ?? ""
+        
+        let requestDict: [String: Any] = [
+            "prompt": getAugmentedPrompt(for: userText),
+            "project_path": projectPath,
+            "project_description": projectDescription,
+            "open_files": openFiles,
+            "project_summary": projectSummary
+        ]
+        
         if let data = try? JSONSerialization.data(withJSONObject: requestDict),
            let string = String(data: data, encoding: .utf8) {
             try? await webSocketTask.send(.string(string))
         }
         
-        func receiveMessage() async {
+        while isProcessing {
             do {
                 let message = try await webSocketTask.receive()
                 switch message {
@@ -252,6 +264,18 @@ final class AgentViewModel: ObservableObject {
                                 } else if type == "tool_stream", let chunk = json["chunk"] as? String {
                                     self.activePendingEditCode? += chunk
                                 } else if type == "tool_finish" {
+                                    if self.activeToolAction != nil,
+                                       let argsJson = self.activePendingEditCode,
+                                       let projectURL = self.projectViewModel?.projectURL {
+                                        if let argsData = argsJson.data(using: .utf8),
+                                           let argsDict = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] {
+                                            if let relativePath = argsDict["path"] as? String {
+                                                let targetURL = projectURL.appendingPathComponent(relativePath)
+                                                self.projectViewModel?.refreshWorkspace()
+                                                self.editorViewModel?.reloadText(for: targetURL)
+                                            }
+                                        }
+                                    }
                                     self.activeToolAction = nil
                                     self.activePendingEditCode = nil
                                 }
@@ -263,10 +287,6 @@ final class AgentViewModel: ObservableObject {
                 @unknown default:
                     break
                 }
-                
-                if isProcessing {
-                    await receiveMessage()
-                }
             } catch {
                 await MainActor.run {
                     self.appendActivity(.error(message: "WebSocket disconnected"), details: error.localizedDescription)
@@ -275,16 +295,47 @@ final class AgentViewModel: ObservableObject {
                     }
                     self.isProcessing = false
                 }
+                break
             }
         }
-        
-        await receiveMessage()
         
         if let lastIndex = chatMessages.lastIndex(where: { $0.role == .assistant }) {
             chatMessages[lastIndex].totalWorkTime = Date().timeIntervalSince(startTime)
         }
         
         saveHistory()
+    }
+
+    private func getAugmentedPrompt(for prompt: String) -> String {
+        var augmentedPrompt = prompt
+        if let projectVM = projectViewModel {
+            let words = prompt.components(separatedBy: CharacterSet.whitespacesAndNewlines)
+            var injectedFiles = [String]()
+            for word in words {
+                var cleanWord = word
+                while cleanWord.hasSuffix("?") || cleanWord.hasSuffix(".") || cleanWord.hasSuffix(",") || cleanWord.hasSuffix("!") || cleanWord.hasSuffix(":") {
+                    cleanWord.removeLast()
+                }
+                if cleanWord.hasPrefix("@") {
+                    let filename = String(cleanWord.dropFirst())
+                    if let url = findFileURL(name: filename, in: projectVM.workspaceItems),
+                       let content = try? FileSystemService.shared.readText(from: url) {
+                        let limit = 150000
+                        let truncated: String
+                        if content.count > limit {
+                            truncated = String(content.prefix(limit)) + "\n... [File truncated due to size. Use your tools to read specific lines if needed]"
+                        } else {
+                            truncated = content
+                        }
+                        injectedFiles.append("Context from \(filename):\n```\n\(truncated)\n```\n")
+                    }
+                }
+            }
+            if !injectedFiles.isEmpty {
+                augmentedPrompt = injectedFiles.joined(separator: "\n") + "\nUser Request: " + prompt
+            }
+        }
+        return augmentedPrompt
     }
 
     private func findFileURL(name: String, in items: [WorkspaceFile]) -> URL? {
